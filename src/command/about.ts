@@ -8,8 +8,8 @@ import { GlobalCommandRegistry } from "../Modules/CommandAPI/CommandRegistry";
  * /about コマンド: プラグインやアドオンの情報を表示
  */
 export class AboutCommand extends BaseCommand {
-    readonly name = "chest:about";
-    readonly description = "ChestlockAddon2の情報を表示します。";
+    readonly name = "ws:about";
+    readonly description = "wsserverAddonの情報を表示します。";
     readonly permissionLevel = CommandPermissionLevel.Any;
     readonly parameters = [];
 
@@ -25,13 +25,13 @@ export class AboutCommand extends BaseCommand {
             };
         }
         const aboutMessage = [
-            `ChestlockAddon2 ${ver}`,
+            `ws Addon ${ver}`,
             "Created by こう君",
             "詳細は Github の Readme を参照してください。",
         ].join("\n");
 
         const form = new ActionFormData()
-            .title("ChestlockAddon2について")
+            .title("ws Addonについて")
             .body(aboutMessage)
             .button("OK");
         form.show(player as any);
