@@ -5,19 +5,48 @@ import { WSCommandRegistry } from './register.js';
 export class PlayerChatHandler {
   private server: Server;
   private registry: WSCommandRegistry;
+  private isListenerRegistered: boolean = false;
 
   constructor(server: Server, registry: WSCommandRegistry) {
     this.server = server;
     this.registry = registry;
-    this.server.on(ServerEvent.PlayerChat, this.handleChat.bind(this));
+    
+    // 即座に登録を試行
+    this.registerChatListener();
+    
+    // ワールドが追加されたタイミングで再度確認
+    this.server.on(ServerEvent.WorldAdd, (world) => {
+      if (!this.isListenerRegistered) {
+        this.registerChatListener();
+      }
+    });
+  }
+  
+  private registerChatListener(): void {
+    if (this.isListenerRegistered) {
+      return;
+    }
+
+    try {
+      this.server.on(ServerEvent.PlayerChat, this.handleChat.bind(this));
+      this.isListenerRegistered = true;
+      console.log('✅ [PlayerChatHandler] チャットハンドラーを初期化しました');
+    } catch (error) {
+      console.error('❌ [PlayerChatHandler] チャットハンドラーの初期化に失敗:', error);
+    }
   }
 
   private async handleChat(ev: PlayerChatSignal) {
     const { sender, message } = ev;
-    console.log(`📢 [Chat] ${sender.name}: ${message}`);
-    if (sender.name === 'External') return;
-    if (sender.name === '外部') return;
-    if (!message.startsWith('!')) return;
+    console.log(`� [Chat] ${sender.name}: ${message}`);
+    
+    // External/外部プレイヤーのメッセージは無視
+    if (sender.name === 'External' || sender.name === '外部') return;
+    
+    // コマンドでない場合は処理しない
+    if (!message.startsWith('#')) return;
+
+    console.log(`🎮 [Command] ${sender.name} executed: ${message}`);
 
     
 

@@ -17,7 +17,7 @@ export function registerHelpCommand(registry: WSCommandRegistry) {
         player.sendMessage('§a=== 利用可能なコマンド ===');
         commands.forEach(cmd => {
           const desc = cmd.description || 'No description';
-          player.sendMessage(`§7!${cmd.name} §f- §7${desc}`);
+          player.sendMessage(`§7#${cmd.name} §f- §7${desc}`);
         });
         player.sendMessage(`§a合計 ${commands.length} 個のコマンドがあります`);
       } else {

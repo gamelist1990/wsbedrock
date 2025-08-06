@@ -1,6 +1,10 @@
 import { EncryptionMode, Server, ServerEvent } from 'socket-be';
 import { settings } from './settings.js';
 import { ModuleLoader } from './Loader.js';
+import { UtilManager } from './tool/UtilManager.js';
+
+// Utilシステムの初期化
+const utils = UtilManager.getInstance();
 
 // グローバルエラーハンドラーを設定
 process.on('uncaughtException', (error) => {
@@ -90,7 +94,8 @@ process.stderr.write = function(chunk: any, encoding?: any, callback?: any) {
 
 const server = new Server({
   port: settings.port,
-  encryptionMode: EncryptionMode.Aes256cfb128
+  debug: true,
+  disableEncryption: true,
 });
 
 // ModuleLoaderのインスタンスを作成
@@ -99,6 +104,9 @@ const moduleLoader = new ModuleLoader(server);
 server.on(ServerEvent.Open, async () => {
   try {
     console.log('🌐 Server started on port:', settings.port);
+    
+    // Utilシステムの初期化
+    await utils.initialize();
     
     // 自動ロード機能を実行
     await moduleLoader.autoLoad();
@@ -111,7 +119,22 @@ server.on(ServerEvent.Open, async () => {
 server.on(ServerEvent.Close, async () => {
   try {
     console.log('🔌 Server closed');
+    
+    // Utilシステムのクリーンアップ
+    await utils.cleanup();
   } catch (error) {
     console.error('💥 サーバー終了中にエラーが発生しました:', error);
   }
 });
+
+
+server.on(ServerEvent.WorldAdd, (world) => {
+  console.log(`🌍 World connected: ${world.world.name}`);
+});
+
+server.on(ServerEvent.WorldRemove, (world) => {
+  console.log(`🌍 World disconnected: ${world.world.name}`);
+});
+
+// Utilシステムをエクスポート（他のモジュールから使用可能に）
+export { utils };
