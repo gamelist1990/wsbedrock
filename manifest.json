@@ -1,0 +1,43 @@
+{
+  "format_version": 2,
+  "header": {
+    "description": "ChestLock Addon v2 - alpha",
+    "name": "ChestLockアドオンv2",
+    "uuid": "c8a9c917-0f68-4427-aa9d-80b71b1fd641",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 50]
+  },
+  "metadata": {
+    "authors": ["gamelist1990"],
+    "license": "MIT",
+    "url": "https://github.com/gamelist1990/null"
+  },
+  "modules": [
+    {
+      "description": "ChsetLockAddon",
+      "type": "script",
+      "uuid": "0f1003dc-575b-4d84-a756-fdf5e06c762c",
+      "version": [1, 0, 0],
+      "language": "javascript",
+      "entry": "scripts/Loader.js"
+    }
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.2.0-beta"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.1.0-beta"
+    },
+    {
+      "module_name": "@minecraft/debug-utilities",
+      "version": "1.0.0-beta"
+    },
+    {
+      "module_name": "@minecraft/common",
+      "version": "1.2.0"
+    }
+  ]
+}

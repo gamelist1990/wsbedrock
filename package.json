@@ -1,0 +1,25 @@
+{
+  "name": "minecraft-script",
+  "version": "1.0.0",
+  "description": "Minecraft Bedrock スクリプト",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project ./tsconfig.json",
+    "watch": "tsc --watch --project ./tsconfig.json",
+    "setup": "node setup.js"
+  },
+  "author": "こう君",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "inquirer": "^9.2.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@minecraft/common": "^1.2.0",
+    "@minecraft/debug-utilities": "^1.0.0-beta.1.21.95-stable",
+    "@minecraft/server": "^2.1.0-beta.1.21.95-stable",
+    "@minecraft/server-ui": "latest",
+    "chalk": "^5.3.0"
+  }
+}
