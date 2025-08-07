@@ -1,3 +1,13 @@
+// プレイヤー名から数値IDを生成する関数
+function nameToNumber(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    const char = name.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // 32bit整数に変換
+  }
+  return Math.abs(hash);
+}
 import { Player, system } from '@minecraft/server';
 import { ActionFormData, ModalFormData } from '@minecraft/server-ui';
 import { jsonScoreboardDB } from '../../../Modules/ScriptEvent/jsonScoreboardBridge';
@@ -91,7 +101,7 @@ function createActionForm(player: Player, title: string, body: string, buttons: 
   // フォームを表示
   form.show(player as any).then(response => {
     const formResponse: FormResponse = {
-      playerId: player.id,
+      playerId: nameToNumber(player.name).toString(),
       playerName: player.name,
       formType: 'action',
       formId: formId,
@@ -147,7 +157,7 @@ function createModalForm(player: Player, title: string, elements: FormElement[],
   // フォームを表示
   form.show(player as any).then(response => {
     const formResponse: FormResponse = {
-      playerId: player.id,
+      playerId: nameToNumber(player.name).toString(),
       playerName: player.name,
       formType: 'modal',
       formId: formId,
@@ -319,10 +329,10 @@ registerScriptEvent({
       // プレイヤーの最新の結果を検索
       let latestResponse: FormResponse | null = null;
       let latestTimestamp = 0;
-      
+      const playerIdNum = nameToNumber(player.name).toString();
       for (const [, data] of Object.entries(listResult.data)) {
         const response = data as FormResponse;
-        if (response.playerId === player.id && response.timestamp > latestTimestamp) {
+        if (response.playerId === playerIdNum && response.timestamp > latestTimestamp) {
           latestResponse = response;
           latestTimestamp = response.timestamp;
         }
@@ -355,10 +365,10 @@ registerScriptEvent({
       }
       
       let foundResponse: FormResponse | null = null;
-      
+      const playerIdNum = nameToNumber(player.name).toString();
       for (const [, data] of Object.entries(listResult.data)) {
         const response = data as FormResponse;
-        if (response.playerId === player.id && response.formId === formId) {
+        if (response.playerId === playerIdNum && response.formId === formId) {
           foundResponse = response;
           break;
         }
@@ -398,10 +408,10 @@ registerScriptEvent({
     }
     
     const playerResponses: FormResponse[] = [];
-    
+    const playerIdNum = nameToNumber(player.name).toString();
     for (const [, data] of Object.entries(listResult.data)) {
       const response = data as FormResponse;
-      if (response.playerId === player.id) {
+      if (response.playerId === playerIdNum) {
         playerResponses.push(response);
       }
     }
@@ -523,7 +533,7 @@ registerScriptEvent({
     const testData = {
       test: true,
       timestamp: Date.now(),
-      playerId: player.id
+      playerId: nameToNumber(player.name).toString()
     };
     
     player.sendMessage(`§b[テスト] 削除テスト開始 ID: ${testId}`);
