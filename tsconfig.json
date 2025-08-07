@@ -1,7 +1,7 @@
 {
     "include": [
         "src/**/*.ts",
-        "global.d.ts",
+        "global.d.ts", "src/command/ScriptEventCommand/databaseCommands.DISABLED",
     ],
     "exclude": [
         "node_modules"

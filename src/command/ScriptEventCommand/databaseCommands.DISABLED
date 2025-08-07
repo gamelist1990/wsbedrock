@@ -1,0 +1,902 @@
+import { jsonScoreboardDB } from "../../Modules/ScriptEvent/jsonScoreboardBridge";
+import { registerScriptEvent } from "../../Modules/ScriptEvent/register";
+
+
+
+// JSONデータベーステストコマンド
+registerScriptEvent({
+  name: 'jsondbtest',
+  description: 'JSONデータベース機能をテストします',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    // JSONテストデータを設定
+    const testData1 = {
+      name: player.name,
+      level: 25,
+      inventory: ["sword", "pickaxe", "food"],
+      stats: {
+        health: 100,
+        mana: 50,
+        experience: 1250
+      }
+    };
+
+    const testData2 = {
+      name: "Server Config",
+      settings: {
+        maxPlayers: 20,
+        difficulty: "normal",
+        pvpEnabled: true
+      },
+      lastUpdate: new Date().toISOString()
+    };
+
+    // JSONデータをテスト
+    let response = jsonScoreboardDB.setJson('player_profiles', 1001, testData1);
+    player.sendMessage(`§a[JSON DB Test] プレイヤープロフィール設定: ${response.success ? '成功' : '失敗'}`);
+    console.log(`[JSON DB Test] プレイヤープロフィール設定: ${response.success ? '成功' : '失敗'}`);
+
+    response = jsonScoreboardDB.setJson('server_settings', 2001, testData2);
+    player.sendMessage(`§a[JSON DB Test] サーバー設定: ${response.success ? '成功' : '失敗'}`);
+    console.log(`[JSON DB Test] サーバー設定: ${response.success ? '成功' : '失敗'}`);
+
+    // データを取得してテスト
+    response = jsonScoreboardDB.getJson('player_profiles', 1001);
+    if (response.success) {
+      player.sendMessage(`§b[JSON DB Test] 取得成功:`);
+      player.sendMessage(`§f${JSON.stringify(response.data, null, 2)}`);
+      console.log(`[JSON DB Test] 取得成功:`, response.data);
+    }
+
+    // データを更新テスト
+    const updateData = {
+      level: 30,
+      "stats.experience": 1500
+    };
+    response = jsonScoreboardDB.updateJson('player_profiles', 1001, updateData);
+    player.sendMessage(`§e[JSON DB Test] データ更新: ${response.success ? '成功' : '失敗'}`);
+    console.log(`[JSON DB Test] データ更新: ${response.success ? '成功' : '失敗'}`);
+
+    // 存在確認テスト
+    response = jsonScoreboardDB.existsJson('player_profiles', 1001);
+    player.sendMessage(`§d[JSON DB Test] データ存在確認: ${response.data ? '存在する' : '存在しない'}`);
+    console.log(`[JSON DB Test] データ存在確認: ${response.data ? '存在する' : '存在しない'}`);
+
+    // 一覧表示テスト
+    response = jsonScoreboardDB.listJson('player_profiles');
+    if (response.success && response.data) {
+      player.sendMessage(`§6[JSON DB Test] テーブル内容:`);
+      console.log(`[JSON DB Test] テーブル内容:`, response.data);
+      for (const [id, data] of Object.entries(response.data)) {
+        player.sendMessage(`§f  ID ${id}: ${JSON.stringify(data).substring(0, 100)}...`);
+      }
+    }
+  },
+});
+
+// 文字数制限テストコマンド
+registerScriptEvent({
+  name: 'jsonlimittest',
+  description: 'JSONデータベースの文字数制限をテストします',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    player.sendMessage('§e[文字数制限テスト] 開始...');
+    console.log('[jsonlimittest] 文字数制限テスト開始');
+
+    // より幅広くて詳細なテスト長を設定
+    const testLengths = [
+      16, 32, 64, 100, 150, 200, 256, 300, 400, 500,
+      600, 700, 800, 900, 1000, 1200, 1500, 2000,
+      2500, 3000, 4000, 5000, 7500, 10000, 12000, 15000,
+      20000, 25000, 30000, 35000, 40000, 45000, 50000,
+      60000, 65536, 70000, 80000, 90000, 100000
+    ];
+
+    let maxSafeLength = 0;
+    const testResults: Array<{ length: number, success: boolean }> = [];
+
+    player.sendMessage('§6[制限テスト] 単純文字列でテスト中...');
+
+    for (const length of testLengths) {
+      // 単純な繰り返し文字でテスト
+      const testString = 'a'.repeat(length);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+
+      testResults.push({
+        length: length,
+        success: result.success
+      });
+
+      if (result.success) {
+        maxSafeLength = length;
+        if (length % 1000 === 0 || length >= 10000) {
+          player.sendMessage(`§a[制限テスト] ${length}文字まで成功`);
+          console.log(`[jsonlimittest] ${length}文字まで成功`);
+        }
+      } else {
+        // 失敗した時点で詳細を報告
+        player.sendMessage(`§c[制限テスト] ${length}文字で初回失敗検出!`);
+        console.log(`[jsonlimittest] ${length}文字で初回失敗検出! エラー: ${result.error}`);
+        break;
+      }
+    }
+
+    player.sendMessage(`§a[制限テスト] 単純文字列の最大安全長: §f${maxSafeLength} 文字`);
+    console.log(`[jsonlimittest] 単純文字列の最大安全長: ${maxSafeLength} 文字`);
+
+    // より複雑なJSONでテスト
+    player.sendMessage('§6[実JSON テスト] 段階的に複雑なJSONでテスト:');
+
+    // 段階的に複雑なJSONを生成してテスト
+    const jsonTests = [
+      // レベル1: 基本
+      { "n": "t" },
+      { "name": "test" },
+      { "name": "player", "level": 1 },
+
+      // レベル2: 配列追加
+      { "name": "player", "level": 25, "items": ["sword", "shield"] },
+      { "name": "player", "level": 25, "items": ["sword", "shield", "potion", "food", "armor"] },
+
+      // レベル3: ネストオブジェクト
+      {
+        "name": "complex_test",
+        "data": {
+          "level": 50,
+          "stats": { "hp": 100, "mp": 50 }
+        }
+      },
+
+      // レベル4: より複雑
+      {
+        "playerName": "TestPlayer123456789",
+        "playerLevel": 999999,
+        "playerStats": {
+          "health": 100,
+          "mana": 75,
+          "experience": 5000000,
+          "strength": 85,
+          "defense": 90,
+          "speed": 75
+        },
+        "inventory": [
+          "diamond_sword_of_sharpness_V",
+          "iron_pickaxe_efficiency_IV",
+          "golden_apple_enchanted",
+          "enchanted_book_of_mending"
+        ]
+      }
+    ];
+
+    for (let i = 0; i < jsonTests.length; i++) {
+      const jsonString = JSON.stringify(jsonTests[i]);
+      const testResult = jsonScoreboardDB.testParticipantNameLimit(jsonString);
+
+      const status = testResult.success ? '§a成功' : '§c失敗';
+      player.sendMessage(`§f  レベル${i + 1} (${jsonString.length}文字): ${status}`);
+      console.log(`[jsonlimittest] レベル${i + 1} (${jsonString.length}文字): ${status}`);
+
+      if (!testResult.success) {
+        player.sendMessage(`§c    失敗したJSON: ${jsonString.substring(0, 100)}...`);
+        console.log(`[jsonlimittest] 失敗したJSON: ${jsonString.substring(0, 100)}...`);
+      }
+    }
+
+    // 極限テスト: 大量データ生成
+    player.sendMessage('§6[極限テスト] 大量データでテスト:');
+
+    const extremeTests = [
+      // 大量配列
+      {
+        "items": Array.from({ length: 50 }, (_, i) => `item_${i}_with_long_name`)
+      },
+      // 大量プロパティ
+      Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`prop${i}`, `value${i}`])),
+      // 深いネスト
+      {
+        "level1": {
+          "level2": {
+            "level3": {
+              "level4": {
+                "level5": {
+                  "data": Array.from({ length: 20 }, (_, i) => `deep_item_${i}`)
+                }
+              }
+            }
+          }
+        }
+      }
+    ];
+
+    for (let i = 0; i < extremeTests.length; i++) {
+      const jsonString = JSON.stringify(extremeTests[i]);
+      const testResult = jsonScoreboardDB.testParticipantNameLimit(jsonString);
+
+      const status = testResult.success ? '§a成功' : '§c失敗';
+      player.sendMessage(`§f  極限${i + 1} (${jsonString.length}文字): ${status}`);
+      console.log(`[jsonlimittest] 極限${i + 1} (${jsonString.length}文字): ${status}`);
+
+      if (testResult.success) {
+        player.sendMessage(`§7    成功例: ${jsonString.substring(0, 80)}...`);
+      } else {
+        player.sendMessage(`§c    失敗例: ${jsonString.substring(0, 80)}...`);
+        player.sendMessage(`§c    エラー: ${testResult.error || '不明'}`);
+        console.log(`[jsonlimittest] 失敗例: ${jsonString.substring(0, 80)}... エラー: ${testResult.error || '不明'}`);
+      }
+    }
+
+    // バイナリサーチで正確な限界を特定
+    player.sendMessage('§6[精密テスト] バイナリサーチで正確な制限を特定中...');
+    console.log('[jsonlimittest] バイナリサーチで正確な制限を特定中...');
+
+    // より広範囲でバイナリサーチを実行
+    let low = maxSafeLength;
+    let high = Math.max(maxSafeLength * 10, 100000);
+    let preciseLimit = maxSafeLength;
+
+    console.log(`[jsonlimittest] バイナリサーチ範囲: ${low} - ${high}`);
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const testString = 'x'.repeat(mid);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+
+      console.log(`[jsonlimittest] バイナリサーチ: ${mid}文字 - ${result.success ? '成功' : '失敗'}`);
+
+      if (result.success) {
+        preciseLimit = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    player.sendMessage(`§a[精密テスト] 正確な制限: §f${preciseLimit} 文字`);
+    player.sendMessage(`§e[テスト完了] participant名の最大長は §f${preciseLimit} §e文字です`);
+    console.log(`[jsonlimittest] 正確な制限: ${preciseLimit} 文字, participant名の最大長: ${preciseLimit} 文字`);
+    
+    // 制限付近での詳細テスト
+    player.sendMessage('§6[境界テスト] 制限付近での詳細検証...');
+    console.log('[jsonlimittest] 境界テスト開始');
+    
+    const boundaryTests = [
+      preciseLimit - 2,
+      preciseLimit - 1,
+      preciseLimit,
+      preciseLimit + 1,
+      preciseLimit + 2
+    ];
+    
+    for (const testLength of boundaryTests) {
+      if (testLength <= 0) continue;
+      
+      const testString = 'z'.repeat(testLength);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      const status = result.success ? '§a成功' : '§c失敗';
+      
+      player.sendMessage(`§f  境界テスト ${testLength}文字: ${status}`);
+      console.log(`[jsonlimittest] 境界テスト ${testLength}文字: ${status}`);
+    }
+  },
+});
+
+// 直接格納テストコマンド
+registerScriptEvent({
+  name: 'jsondirecttest',
+  description: '直接格納機能をテストします',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    // 小さなJSONで直接格納テスト
+    const smallData = {
+      "name": player.name,
+      "level": 1,
+      "coins": 100
+    };
+
+    player.sendMessage('§e[直接格納テスト] 小さなJSONでテスト...');
+    console.log('[jsondirecttest] 小さなJSONでテスト...');
+
+    let response = jsonScoreboardDB.setJsonDirect('test_direct', 5001, smallData);
+    player.sendMessage(`§a[直接格納] 設定: ${response.success ? '成功' : `失敗 - ${response.error}`}`);
+    console.log(`[jsondirecttest] 設定: ${response.success ? '成功' : `失敗 - ${response.error}`}`);
+
+    if (response.success) {
+      // 取得テスト
+      response = jsonScoreboardDB.getJsonDirect('test_direct', 5001);
+      if (response.success) {
+        player.sendMessage('§b[直接格納] 取得成功:');
+        player.sendMessage(`§f${JSON.stringify(response.data, null, 2)}`);
+        console.log('[jsondirecttest] 取得成功:', response.data);
+      } else {
+        player.sendMessage(`§c[直接格納] 取得失敗: ${response.error}`);
+        console.log(`[jsondirecttest] 取得失敗: ${response.error}`);
+      }
+    }
+
+    // より大きなJSONでテスト
+    const largeData = {
+      "playerName": player.name,
+      "playerLevel": 25,
+      "playerStats": {
+        "health": 100,
+        "mana": 75,
+        "experience": 5000
+      },
+      "inventory": [
+        "diamond_sword",
+        "iron_pickaxe",
+        "golden_apple",
+        "enchanted_book"
+      ],
+      "achievements": ["first_kill", "first_craft", "level_10"]
+    };
+
+    player.sendMessage('§e[直接格納テスト] 大きなJSONでテスト...');
+    console.log('[jsondirecttest] 大きなJSONでテスト...');
+
+    response = jsonScoreboardDB.setJsonDirect('test_direct', 5002, largeData);
+    player.sendMessage(`§a[直接格納] 大JSON設定: ${response.success ? '成功' : `失敗 - ${response.error}`}`);
+    console.log(`[jsondirecttest] 大JSON設定: ${response.success ? '成功' : `失敗 - ${response.error}`}`);
+
+    if (response.success) {
+      response = jsonScoreboardDB.getJsonDirect('test_direct', 5002);
+      if (response.success) {
+        player.sendMessage('§b[直接格納] 大JSON取得成功');
+        // 長いので一部のみ表示
+        const dataStr = JSON.stringify(response.data);
+        player.sendMessage(`§f${dataStr.substring(0, 100)}${dataStr.length > 100 ? '...' : ''}`);
+      }
+    }
+  },
+});
+
+// 高精度制限テストコマンド
+registerScriptEvent({
+  name: 'jsonexactlimit',
+  description: '高精度で正確な文字数制限を特定します',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+    
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    player.sendMessage('§e[高精度制限テスト] 正確な制限を特定中...');
+    console.log('[jsonexactlimit] 高精度制限テスト開始');
+    
+    // 段階的探索で大まかな範囲を特定
+    player.sendMessage('§6[段階1] 大まかな範囲を特定中...');
+    
+    const quickTests = [1000000, 5000000, 10000000, 20000000, 50000000, 100000000, 200000000, 500000000, 1000000000];
+    let lastSuccess = 0;
+    let firstFailure = 1000000000;
+    
+    for (const testLength of quickTests) {
+      const testString = 'T'.repeat(testLength);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      
+      if (result.success) {
+        lastSuccess = testLength;
+        player.sendMessage(`§a  ${testLength}文字: 成功`);
+        console.log(`[jsonexactlimit] ${testLength}文字: 成功`);
+      } else {
+        firstFailure = testLength;
+        player.sendMessage(`§c  ${testLength}文字: 失敗`);
+        console.log(`[jsonexactlimit] ${testLength}文字: 失敗 - ${result.error}`);
+        break;
+      }
+    }
+    
+    // 高精度バイナリサーチ
+    player.sendMessage(`§6[段階2] 高精度バイナリサーチ (${lastSuccess} - ${firstFailure})...`);
+    console.log(`[jsonexactlimit] バイナリサーチ範囲: ${lastSuccess} - ${firstFailure}`);
+    
+    const exactLimit = jsonScoreboardDB.findExactLimit(lastSuccess, firstFailure);
+    
+    player.sendMessage(`§a[結果] 正確な制限: §f${exactLimit} 文字`);
+    console.log(`[jsonexactlimit] 正確な制限: ${exactLimit} 文字`);
+    
+    // 最終確認テスト
+    player.sendMessage('§6[最終確認] 制限付近での詳細検証...');
+    
+    const finalTests = [
+      exactLimit - 5,
+      exactLimit - 1, 
+      exactLimit,
+      exactLimit + 1,
+      exactLimit + 5
+    ];
+    
+    for (const testLength of finalTests) {
+      if (testLength <= 0) continue;
+      
+      const testString = 'F'.repeat(testLength);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      const status = result.success ? '§a成功' : '§c失敗';
+      
+      player.sendMessage(`§f  最終確認 ${testLength}文字: ${status}`);
+      console.log(`[jsonexactlimit] 最終確認 ${testLength}文字: ${status}`);
+    }
+    
+    // 特殊文字での制限テスト
+    player.sendMessage('§6[特殊文字テスト] Unicodeでの制限確認...');
+    
+    const unicodeTests = [
+      { name: 'ASCII', char: 'A' },
+      { name: '日本語', char: 'あ' },
+      { name: '漢字', char: '漢' },
+      { name: '絵文字', char: '🎮' },
+      { name: 'JSON記号', char: '{' }
+    ];
+    
+    for (const test of unicodeTests) {
+      const testString = test.char.repeat(Math.floor(exactLimit / 2));
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      const status = result.success ? '§a成功' : '§c失敗';
+      
+      player.sendMessage(`§f  ${test.name} (${testString.length}文字): ${status}`);
+      console.log(`[jsonexactlimit] ${test.name} ${testString.length}文字: ${status}`);
+    }
+    
+    player.sendMessage(`§e[完了] participant名の正確な制限: §f${exactLimit} §e文字`);
+    console.log(`[jsonexactlimit] テスト完了 - 正確な制限: ${exactLimit} 文字`);
+  },
+});
+
+// メガサイズ制限テストコマンド（メモリ効率版）
+registerScriptEvent({
+  name: 'jsonmegalimit',
+  description: '非常に大きな文字数制限をメモリ効率的にテストします',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+    
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    player.sendMessage('§e[メガ制限テスト] 超大容量テスト開始...');
+    console.log('[jsonmegalimit] メガ制限テスト開始');
+    
+    // メガサイズの段階テスト
+    player.sendMessage('§6[段階1] メガサイズ範囲の特定...');
+    
+    const megaTests = [
+      1000000,    // 1M
+      5000000,    // 5M  
+      10000000,   // 10M
+      50000000,   // 50M
+      100000000,  // 100M
+      500000000,  // 500M
+      1000000000, // 1G
+      2000000000  // 2G (JavaScript の安全な整数制限に近い)
+    ];
+    
+    let lastMegaSuccess = 0;
+    let firstMegaFailure = 2000000000;
+    
+    for (const testLength of megaTests) {
+      player.sendMessage(`§7[メガテスト] ${(testLength / 1000000).toFixed(1)}M文字 をテスト中...`);
+      console.log(`[jsonmegalimit] ${testLength}文字 (${(testLength / 1000000).toFixed(1)}M) テスト中...`);
+      
+      let testString: string;
+      try {
+        // 段階的に文字列を構築してメモリ使用量を制御
+        const chunkSize = 1000000; // 1Mずつ構築
+        const chunks = Math.floor(testLength / chunkSize);
+        const remainder = testLength % chunkSize;
+        
+        testString = '';
+        for (let i = 0; i < chunks; i++) {
+          testString += 'x'.repeat(chunkSize);
+          
+          // 進捗表示（大きなチャンクの場合）
+          if (chunks > 10 && i % Math.floor(chunks / 10) === 0) {
+            console.log(`[jsonmegalimit] 文字列構築進捗: ${((i / chunks) * 100).toFixed(1)}%`);
+          }
+        }
+        if (remainder > 0) {
+          testString += 'x'.repeat(remainder);
+        }
+        
+        console.log(`[jsonmegalimit] ${testLength}文字の文字列構築完了`);
+        
+      } catch (memoryError) {
+        player.sendMessage(`§c  ${(testLength / 1000000).toFixed(1)}M文字: メモリ不足`);
+        console.log(`[jsonmegalimit] ${testLength}文字: メモリ不足 - ${memoryError}`);
+        firstMegaFailure = testLength;
+        break;
+      }
+      
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      
+      if (result.success) {
+        lastMegaSuccess = testLength;
+        player.sendMessage(`§a  ${(testLength / 1000000).toFixed(1)}M文字: 成功`);
+        console.log(`[jsonmegalimit] ${testLength}文字: 成功`);
+        
+        // メモリ解放のためnullに設定
+        testString = '';
+        
+      } else {
+        firstMegaFailure = testLength;
+        player.sendMessage(`§c  ${(testLength / 1000000).toFixed(1)}M文字: 失敗`);
+        console.log(`[jsonmegalimit] ${testLength}文字: 失敗 - ${result.error}`);
+        break;
+      }
+    }
+    
+    if (lastMegaSuccess === 0) {
+      player.sendMessage('§c[結果] 1M文字でも失敗。前のテスト結果を確認してください。');
+      return;
+    }
+    
+    // 成功範囲が見つかった場合のメッセージ
+    if (lastMegaSuccess >= firstMegaFailure) {
+      player.sendMessage(`§a[結果] ${(lastMegaSuccess / 1000000).toFixed(1)}M文字以上でも制限が見つかりませんでした`);
+      player.sendMessage('§e[注意] JavaScript/メモリの制限により、これ以上のテストは困難です');
+      console.log(`[jsonmegalimit] ${lastMegaSuccess}文字以上でも制限未発見`);
+    } else {
+      player.sendMessage(`§6[段階2] 精密範囲: ${(lastMegaSuccess / 1000000).toFixed(1)}M - ${(firstMegaFailure / 1000000).toFixed(1)}M`);
+      console.log(`[jsonmegalimit] 精密テスト範囲: ${lastMegaSuccess} - ${firstMegaFailure}`);
+      
+      // この範囲であれば通常のバイナリサーチを実行
+      player.sendMessage('§6[バイナリサーチ] 精密な制限を特定中...');
+      const exactLimit = jsonScoreboardDB.findExactLimit(lastMegaSuccess, firstMegaFailure);
+      
+      player.sendMessage(`§a[最終結果] 正確な制限: §f${exactLimit} §a文字 (${(exactLimit / 1000000).toFixed(2)}M文字)`);
+      console.log(`[jsonmegalimit] 最終結果: ${exactLimit}文字 (${(exactLimit / 1000000).toFixed(2)}M文字)`);
+    }
+    
+    console.log(`[jsonmegalimit] メガテスト完了`);
+  },
+});
+
+// 格納・取得整合性テストコマンド
+registerScriptEvent({
+  name: 'jsondataintegrity',
+  description: '格納したデータと取得したデータの整合性をテストします',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+    
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    player.sendMessage('§e[整合性テスト] データ格納・取得の整合性確認開始...');
+    console.log('[jsondataintegrity] データ整合性テスト開始');
+    
+    // 段階的にサイズを増やしてテスト
+    const testSizes = [
+      100,      // 100文字
+      1000,     // 1K
+      10000,    // 10K
+      100000,   // 100K
+      500000,   // 500K
+      1000000,  // 1M
+      5000000,  // 5M
+      10000000  // 10M
+    ];
+    
+    let maxIntegrityLength = 0;
+    
+    for (const testLength of testSizes) {
+      player.sendMessage(`§6[整合性テスト] ${(testLength / 1000).toFixed(0)}K文字でテスト中...`);
+      console.log(`[jsondataintegrity] ${testLength}文字 (${(testLength / 1000).toFixed(1)}K) 整合性テスト中...`);
+      
+      // テストデータ生成（パターンを含む文字列で削られているかを検出）
+      const pattern = 'ABCDEFGHIJ';
+      const baseString = pattern.repeat(Math.floor(testLength / pattern.length));
+      const remainder = 'X'.repeat(testLength % pattern.length);
+      const originalData = baseString + remainder;
+      
+      // 元データの情報
+      const originalLength = originalData.length;
+      const originalHash = originalData.substring(0, 50) + '...' + originalData.substring(originalLength - 50);
+      
+      console.log(`[jsondataintegrity] 元データ長: ${originalLength}, パターン: ${originalHash}`);
+      
+      // 格納テスト
+      const setResult = jsonScoreboardDB.testParticipantNameLimit(originalData);
+      
+      if (!setResult.success) {
+        player.sendMessage(`§c  ${(testLength / 1000).toFixed(0)}K文字: 格納失敗`);
+        console.log(`[jsondataintegrity] ${testLength}文字: 格納失敗 - ${setResult.error}`);
+        break;
+      }
+      
+      // 実際にデータベースに格納して取得テスト
+      const testId = Math.floor(Math.random() * 1000000);
+      const jsonData = { testData: originalData, testId: testId };
+      
+      const dbSetResult = jsonScoreboardDB.setJsonDirect('integrity_test', testId, jsonData);
+      
+      if (!dbSetResult.success) {
+        player.sendMessage(`§c  ${(testLength / 1000).toFixed(0)}K文字: DB格納失敗`);
+        console.log(`[jsondataintegrity] ${testLength}文字: DB格納失敗 - ${dbSetResult.error}`);
+        break;
+      }
+      
+      // データ取得
+      const dbGetResult = jsonScoreboardDB.getJsonDirect('integrity_test', testId);
+      
+      if (!dbGetResult.success) {
+        player.sendMessage(`§c  ${(testLength / 1000).toFixed(0)}K文字: 取得失敗`);
+        console.log(`[jsondataintegrity] ${testLength}文字: 取得失敗 - ${dbGetResult.error}`);
+        break;
+      }
+      
+      // データ整合性チェック
+      const retrievedData = dbGetResult.data.testData;
+      const retrievedLength = retrievedData.length;
+      const retrievedHash = retrievedData.substring(0, 50) + '...' + retrievedData.substring(retrievedLength - 50);
+      
+      console.log(`[jsondataintegrity] 取得データ長: ${retrievedLength}, パターン: ${retrievedHash}`);
+      
+      // 整合性検証
+      const isLengthMatch = originalLength === retrievedLength;
+      const isContentMatch = originalData === retrievedData;
+      
+      if (isLengthMatch && isContentMatch) {
+        maxIntegrityLength = testLength;
+        player.sendMessage(`§a  ${(testLength / 1000).toFixed(0)}K文字: 整合性OK`);
+        console.log(`[jsondataintegrity] ${testLength}文字: 完全整合性確認`);
+        
+        // クリーンアップ
+        jsonScoreboardDB.deleteJson('integrity_test', testId);
+        
+      } else {
+        player.sendMessage(`§c  ${(testLength / 1000).toFixed(0)}K文字: 整合性NG`);
+        
+        if (!isLengthMatch) {
+          player.sendMessage(`§c    長さ不一致: ${originalLength} → ${retrievedLength} (${retrievedLength - originalLength}文字差)`);
+          console.log(`[jsondataintegrity] 長さ不一致: ${originalLength} → ${retrievedLength}`);
+        }
+        
+        if (!isContentMatch) {
+          player.sendMessage('§c    内容不一致: データが改変されています');
+          console.log(`[jsondataintegrity] 内容不一致検出`);
+          
+          // 差異の詳細分析
+          let diffCount = 0;
+          const maxDiffReport = 10;
+          for (let i = 0; i < Math.min(originalLength, retrievedLength); i++) {
+            if (originalData[i] !== retrievedData[i]) {
+              if (diffCount < maxDiffReport) {
+                console.log(`[jsondataintegrity] 差異@${i}: '${originalData[i]}' → '${retrievedData[i]}'`);
+              }
+              diffCount++;
+            }
+          }
+          console.log(`[jsondataintegrity] 総差異数: ${diffCount}`);
+        }
+        
+        // クリーンアップ
+        jsonScoreboardDB.deleteJson('integrity_test', testId);
+        break;
+      }
+    }
+    
+    player.sendMessage(`§a[整合性テスト結果] 完全整合性が保証される最大長: §f${maxIntegrityLength}文字 §a(${(maxIntegrityLength / 1000).toFixed(1)}K文字)`);
+    console.log(`[jsondataintegrity] 整合性テスト完了 - 最大整合性長: ${maxIntegrityLength}文字`);
+    
+    // 実用性評価
+    player.sendMessage('§6[実用性評価] JSONデータでの実用性確認...');
+    
+    const practicalTests = [
+      {
+        name: 'プレイヤーデータ',
+        size: Math.floor(maxIntegrityLength * 0.1),
+        generator: (size) => ({
+          playerName: player.name,
+          level: 100,
+          stats: { hp: 1000, mp: 500 },
+          inventory: Array.from({length: Math.floor(size / 50)}, (_, i) => `item_${i}`),
+          achievements: Array.from({length: Math.floor(size / 100)}, (_, i) => `achievement_${i}`)
+        })
+      },
+      {
+        name: 'サーバー設定',
+        size: Math.floor(maxIntegrityLength * 0.05),
+        generator: (size) => ({
+          serverName: 'Test Server',
+          settings: Object.fromEntries(Array.from({length: Math.floor(size / 20)}, (_, i) => [`setting${i}`, `value${i}`])),
+          rules: Array.from({length: Math.floor(size / 30)}, (_, i) => `rule_${i}`)
+        })
+      }
+    ];
+    
+    for (const test of practicalTests) {
+      try {
+        const testData = test.generator(test.size);
+        const jsonString = JSON.stringify(testData);
+        
+        player.sendMessage(`§7  ${test.name}: ${jsonString.length}文字`);
+        console.log(`[jsondataintegrity] 実用テスト - ${test.name}: ${jsonString.length}文字`);
+        
+        // 簡易整合性チェック
+        const testResult = jsonScoreboardDB.testParticipantNameLimit(jsonString);
+        const status = testResult.success ? '§a実用可能' : '§c実用困難';
+        player.sendMessage(`§f    結果: ${status}`);
+        
+      } catch (error) {
+        console.log(`[jsondataintegrity] 実用テスト失敗 - ${test.name}: ${error}`);
+      }
+    }
+    
+    console.log(`[jsondataintegrity] 全テスト完了`);
+  },
+});
+
+// 境界値詳細テストコマンド
+registerScriptEvent({
+  name: 'jsonboundarytest',
+  description: '制限境界での詳細な格納・取得テストを実行します',
+  parent: false,
+  maxArgs: -1,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+    
+    if (!player) {
+      console.log('プレイヤーが見つかりません');
+      return;
+    }
+
+    player.sendMessage('§e[境界値テスト] 制限境界での詳細テスト開始...');
+    console.log('[jsonboundarytest] 境界値テスト開始');
+    
+    // まず概算の制限を見つける
+    player.sendMessage('§6[段階1] 概算制限の特定...');
+    
+    let currentLimit = 1000000; // 1Mから開始
+    let stepSize = 1000000;     // 1Mずつ増加
+    let foundLimit = 0;
+    
+    // 大まかな制限を見つける
+    while (stepSize > 0) {
+      const testString = 'X'.repeat(currentLimit);
+      const result = jsonScoreboardDB.testParticipantNameLimit(testString);
+      
+      if (result.success) {
+        foundLimit = currentLimit;
+        currentLimit += stepSize;
+        console.log(`[jsonboundarytest] ${foundLimit}文字: 成功, 次は${currentLimit}文字をテスト`);
+      } else {
+        // 失敗したのでステップサイズを小さくして戻る
+        stepSize = Math.floor(stepSize / 10);
+        currentLimit = foundLimit + stepSize;
+        
+        console.log(`[jsonboundarytest] ${currentLimit}文字: 失敗, ステップサイズを${stepSize}に縮小`);
+        
+        if (stepSize < 1) {
+          break;
+        }
+      }
+      
+      // 無限ループ防止
+      if (currentLimit > 2000000000) {
+        console.log('[jsonboundarytest] 制限が2Gを超えました。テスト中止。');
+        break;
+      }
+    }
+    
+    player.sendMessage(`§a[段階1完了] 概算制限: §f${foundLimit}文字`);
+    console.log(`[jsonboundarytest] 概算制限特定: ${foundLimit}文字`);
+    
+    // 境界付近での詳細テスト
+    player.sendMessage('§6[段階2] 境界付近の詳細テスト...');
+    
+    const boundaryRange = Math.min(1000, Math.floor(foundLimit * 0.01)); // 1%の範囲、最大1000
+    const startTest = Math.max(1, foundLimit - boundaryRange);
+    const endTest = foundLimit + boundaryRange;
+    
+    console.log(`[jsonboundarytest] 境界テスト範囲: ${startTest} - ${endTest}`);
+    
+    let preciseLimit = foundLimit;
+    let integrityLimit = 0;
+    
+    for (let testLength = startTest; testLength <= endTest; testLength += Math.max(1, Math.floor(boundaryRange / 100))) {
+      // 格納テスト
+      const testString = 'B'.repeat(testLength);
+      const storeResult = jsonScoreboardDB.testParticipantNameLimit(testString);
+      
+      if (!storeResult.success) {
+        console.log(`[jsonboundarytest] ${testLength}文字: 格納失敗で境界確定`);
+        break;
+      }
+      
+      preciseLimit = testLength;
+      
+      // 整合性テスト（100文字ごとに実行）
+      if (testLength % 100 === 0 || testLength >= endTest - 10) {
+        const integrityResult = jsonScoreboardDB.testDataIntegrity(testString);
+        
+        if (integrityResult.success) {
+          integrityLimit = testLength;
+          console.log(`[jsonboundarytest] ${testLength}文字: 整合性OK`);
+        } else {
+          player.sendMessage(`§c  ${testLength}文字: 整合性NG`);
+          console.log(`[jsonboundarytest] ${testLength}文字: 整合性失敗 - ${integrityResult.error}`);
+          
+          if (!integrityResult.lengthMatch) {
+            player.sendMessage(`§c    長さ: ${integrityResult.originalLength} → ${integrityResult.retrievedLength}`);
+          }
+        }
+      }
+      
+      // 進捗表示
+      if (testLength % Math.max(10, Math.floor(boundaryRange / 20)) === 0) {
+        const progress = ((testLength - startTest) / (endTest - startTest) * 100).toFixed(1);
+        player.sendMessage(`§7  境界テスト進捗: ${progress}% (${testLength}文字)`);
+      }
+    }
+    
+    // 結果報告
+    player.sendMessage('§a[境界テスト完了] 結果:');
+    player.sendMessage(`§f  格納限界: §a${preciseLimit}文字`);
+    player.sendMessage(`§f  整合性限界: §a${integrityLimit}文字`);
+    
+    console.log(`[jsonboundarytest] 最終結果:`);
+    console.log(`[jsonboundarytest] 格納限界: ${preciseLimit}文字`);
+    console.log(`[jsonboundarytest] 整合性限界: ${integrityLimit}文字`);
+    
+    if (preciseLimit !== integrityLimit) {
+      const unsafeBand = preciseLimit - integrityLimit;
+      player.sendMessage(`§e[注意] ${integrityLimit + 1}文字～${preciseLimit}文字の範囲は格納可能だが取得時に破損する可能性があります`);
+      console.log(`[jsonboundarytest] 危険な範囲: ${integrityLimit + 1} - ${preciseLimit}文字 (${unsafeBand}文字幅)`);
+    }
+    
+    // 実用的な推奨値
+    const recommendedLimit = Math.floor(integrityLimit * 0.95); // 5%のマージン
+    player.sendMessage(`§b[推奨] 実用的な安全限界: §f${recommendedLimit}文字`);
+    console.log(`[jsonboundarytest] 推奨安全限界: ${recommendedLimit}文字`);
+    
+    console.log('[jsonboundarytest] 境界値テスト完了');
+  },
+});

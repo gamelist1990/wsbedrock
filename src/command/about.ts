@@ -3,6 +3,7 @@ import { CustomCommandResult, CustomCommandStatus, CommandPermissionLevel, Playe
 import { ActionFormData } from "@minecraft/server-ui";
 import { ver } from "../Modules/version";
 import { GlobalCommandRegistry } from "../Modules/CommandAPI/CommandRegistry";
+import { registerScriptEvent } from "../Modules/ScriptEvent/register";
 
 /**
  * /about コマンド: プラグインやアドオンの情報を表示
@@ -43,3 +44,23 @@ export class AboutCommand extends BaseCommand {
 }
 
 GlobalCommandRegistry.registerCommand(new AboutCommand());
+
+// ScriptEvent用のaboutコマンドを登録
+registerScriptEvent({
+  name: 'about',
+  description: 'about_docs',
+  parent: false,
+  maxArgs: 0,
+  minArgs: 0,
+  require: 0,
+  executor: (ev) => {
+    const { player } = ev;
+    if (player) {
+      player.sendMessage('§aこのサーバーは §bwsbedrock backend です。');
+    } else {
+      console.log('§aこのサーバーは §bwsbedrock backend です。');
+    }
+  },
+});
+
+
