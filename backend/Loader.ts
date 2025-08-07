@@ -114,6 +114,7 @@ export class ModuleLoader {
         
         // register関数を探す（複数の命名規則に対応）
         const registerFunctionNames = [
+          `register${fileName.charAt(0).toUpperCase() + fileName.slice(1).replace('_', '')}Command`,
           `register${fileName.charAt(0).toUpperCase() + fileName.slice(1)}Command`,
           `register${fileName}Command`,
           'register',

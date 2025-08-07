@@ -62,15 +62,14 @@ class ScriptEventCommandRegistry {
     }
 
     try {
-      // 引数の数をチェック
-      if (context.args.length < command.minArgs) {
+      // 引数の数をチェック（-1は無制限扱い）
+      if (command.minArgs !== -1 && context.args.length < command.minArgs) {
         if (context.player) {
           context.player.sendMessage(`§cエラー: コマンド "${name}" には最低 ${command.minArgs} 個の引数が必要です。`);
         }
         return false;
       }
-
-      if (context.args.length > command.maxArgs && command.maxArgs !== -1) {
+      if (command.maxArgs !== -1 && context.args.length > command.maxArgs) {
         if (context.player) {
           context.player.sendMessage(`§cエラー: コマンド "${name}" の引数は最大 ${command.maxArgs} 個まで可能です。`);
         }

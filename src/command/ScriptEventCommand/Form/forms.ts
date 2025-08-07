@@ -106,9 +106,9 @@ function createActionForm(player: Player, title: string, body: string, buttons: 
     
     saveFormResponse(formResponse);
     
-    // プレイヤーに結果を通知
-    if (response.canceled) {
-      player.sendMessage(`§e[フォーム] ${formId}: キャンセルされました`);
+    // キャンセル時の詳細レスポンス
+    if (response.canceled || response.selection === undefined) {
+      player.sendMessage(`§e[フォーム] ${formId}: キャンセルされました（何も選択されませんでした）`);
     } else {
       player.sendMessage(`§a[フォーム] ${formId}: "${buttons[response.selection!]?.text}" が選択されました`);
     }
@@ -178,62 +178,52 @@ function createModalForm(player: Player, title: string, elements: FormElement[],
   });
 }
 
-// ActionForm作成コマンド
+// ActionForm作成コマンド（JSON一発指定対応）
 registerScriptEvent({
   name: 'createactionform',
-  description: 'ActionFormを作成して表示します',
+  description: 'ActionFormをJSONで作成して表示します',
   parent: false,
   maxArgs: -1,
-  minArgs: 3,
+  minArgs: -1,
   require: 0,
   executor: (ev) => {
     const { player, args } = ev;
-    
     if (!player) {
       console.log('[Forms] プレイヤーが見つかりません');
       return;
     }
-    
-    if (args.length < 3) {
-      player.sendMessage('§c[フォーム] 使用法: createactionform <タイトル> <説明> <ボタンJSON>');
-      player.sendMessage('§7例: createactionform 選択 どちらを選びますか？ [{"text":"はい"},{"text":"いいえ"}]');
+    if (args.length < 1) {
+      player.sendMessage('§c[フォーム] 使用法: createactionform <フォームJSON>');
+      player.sendMessage('§7例: createactionform {"title":"選択","body":"どちらを選びますか？","buttons":[{"text":"はい"},{"text":"いいえ"}]}');
       return;
     }
-    
-    const title = args[0];
-    const body = args[1];
-    let buttons: ActionButton[];
-    
-    // 3番目以降の引数を全て結合してJSONとして解析
-    const jsonString = args.slice(2).join(' ');
-    console.log(`[Forms] 解析するJSON: ${jsonString}`);
-    
+    // 引数をすべて結合してJSONとして解析
+    const jsonString = args.join(' ');
+    let formJson: { title: string; body: string; buttons: ActionButton[] };
     try {
-      buttons = JSON.parse(jsonString);
-      if (!Array.isArray(buttons) || buttons.length === 0) {
-        throw new Error('ボタン配列が空です');
+      formJson = JSON.parse(jsonString);
+      if (
+        typeof formJson.title !== 'string' ||
+        typeof formJson.body !== 'string' ||
+        !Array.isArray(formJson.buttons) ||
+        formJson.buttons.length === 0
+      ) {
+        throw new Error('title/body/buttonsが正しくありません');
       }
-      
-      // ボタンの構造チェック
-      for (let i = 0; i < buttons.length; i++) {
-        if (!buttons[i] || typeof buttons[i].text !== 'string') {
-          throw new Error(`ボタン[${i}]にtextプロパティがありません`);
+      for (let i = 0; i < formJson.buttons.length; i++) {
+        if (!formJson.buttons[i] || typeof formJson.buttons[i].text !== 'string') {
+          throw new Error(`buttons[${i}]にtextプロパティがありません`);
         }
       }
-      
     } catch (error) {
-      console.error(`[Forms] ボタンJSONの解析エラー:`, error);
-      player.sendMessage(`§c[フォーム] ボタンJSONの解析に失敗: ${error}`);
-      player.sendMessage('§7正しい形式: [{"text":"ボタン1"},{"text":"ボタン2","iconPath":"textures/items/diamond"}]');
+      player.sendMessage(`§c[フォーム] JSON解析エラー: ${error}`);
+      player.sendMessage('§7正しい形式: {"title":"タイトル","body":"説明","buttons":[{"text":"はい"},{"text":"いいえ"}]}');
       player.sendMessage(`§7受信したJSON: ${jsonString}`);
       return;
     }
-    
     const formId = generateFormId();
     player.sendMessage(`§b[フォーム] ActionForm作成: ${formId}`);
-    console.log(`[Forms] createactionform実行: ${formId} by ${player.name}, ボタン数: ${buttons.length}`);
-    
-    createActionForm(player, title, body, buttons, formId);
+    createActionForm(player, formJson.title, formJson.body, formJson.buttons, formId);
   },
 });
 
