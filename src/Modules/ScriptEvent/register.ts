@@ -3,8 +3,9 @@ import {
   system, 
   Entity, 
   Player,
-  Block
+  Block,
 } from "@minecraft/server";
+
 
 // ScriptEvent用のコマンド定義インターフェース
 interface ScriptEventCommand {
@@ -101,6 +102,8 @@ export function registerScriptEvent(command: ScriptEventCommand): void {
 system.afterEvents.scriptEventReceive.subscribe((ev: ScriptEventCommandMessageAfterEvent) => {
   // devログ追加
   console.log(`[ScriptEvent] Received: id=${ev.id}, message="${ev.message}"`);
+  
+ 
   
   // コマンドシステムの処理 - idが"command:"で始まる場合
   if (ev.id.startsWith("command:")) {

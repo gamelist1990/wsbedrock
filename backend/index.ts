@@ -137,4 +137,4 @@ server.on(ServerEvent.WorldRemove, (world) => {
 });
 
 // Utilシステムをエクスポート（他のモジュールから使用可能に）
-export { utils };
+export { utils, server };

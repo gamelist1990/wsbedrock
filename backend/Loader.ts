@@ -48,7 +48,7 @@ export class ModuleLoader {
       
       // モジュールの読み込み
       await this.loadModules();
-      
+            
       // チャットハンドラーの初期化
       this.initializeChatHandler();
       
@@ -154,6 +154,7 @@ export class ModuleLoader {
     const commandsEndTime = Date.now();
     console.log(`📦 [ModuleLoader] ${commandsLoaded} コマンドを ${commandsEndTime - commandsStartTime}ms で読み込み完了`);
   }
+
 
   // Moduleフォルダからモジュールを読み込み
   private async loadModules(): Promise<void> {
