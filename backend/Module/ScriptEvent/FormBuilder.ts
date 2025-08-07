@@ -51,6 +51,30 @@ class FormResponseMonitor {
     console.log('📡 [FormResponseMonitor] フォーム応答監視を開始しました');
   }
 
+  // フォーム応答データかどうかを判定
+  private isFormResponseData(data: any): boolean {
+    // フォーム応答データには以下のいずれかが含まれるはず
+    const hasFormProperties = 
+      data.hasOwnProperty('canceled') || 
+      data.hasOwnProperty('cancelled') ||
+      data.hasOwnProperty('result') ||
+      data.hasOwnProperty('selection') ||
+      data.hasOwnProperty('selectedIndex') ||
+      data.hasOwnProperty('selectedButton') ||
+      data.hasOwnProperty('values') ||
+      data.hasOwnProperty('formId') ||
+      data.hasOwnProperty('formTitle');
+
+    // プレイヤー統計データのようなものは除外
+    const hasNonFormProperties = 
+      data.hasOwnProperty('playerLevel') ||
+      data.hasOwnProperty('playerStats') ||
+      data.hasOwnProperty('inventory') ||
+      data.hasOwnProperty('achievements');
+
+    return hasFormProperties && !hasNonFormProperties;
+  }
+
   // 新しい応答をチェック
   private async checkForNewResponses(): Promise<void> {
     try {
@@ -69,80 +93,103 @@ class FormResponseMonitor {
           continue;
         }
 
+        // 古すぎる応答データをスキップ（10分以上古い）
+        const responseTime = responseData.timestamp || 0;
+        const now = Date.now();
+        if (responseTime > 0 && (now - responseTime) > 600000) { // 10分以上古い
+          console.log(`⏳ [FormResponseMonitor] 古すぎる応答をスキップ: ID=${responseId}, 時刻=${new Date(responseTime).toISOString()}`);
+          this.lastCheckedIds.add(responseId);
+          continue;
+        }
+
         this.lastCheckedIds.add(responseId);
 
-        // 監視対象のフォームかチェック
-        // クライアント側でformIdが設定されない場合、タイトルとプレイヤーIDで識別
-        const monitoringData = this.monitoringForms.get(responseData.formId);
-        if (!monitoringData || monitoringData.playerId !== responseData.playerId) {
-          // formIdが一致しない場合、タイトルとプレイヤーで再チェック
-          let foundByTitle = false;
-          for (const [formId, data] of this.monitoringForms.entries()) {
-            if (data.playerId === responseData.playerId && 
-                responseData.title && 
-                formId.includes('form_')) {
-              // 時間的に近い応答を探す（5分以内）
-              const formTimestamp = parseInt(formId.split('_')[1]);
-              const responseTime = responseData.timestamp;
-              const timeDiff = Math.abs(responseTime - formTimestamp);
-              
-              if (timeDiff < 300000) { // 5分以内
-                console.log(`📨 [FormResponseMonitor] タイトル・時間マッチでフォーム応答を検知: ${responseData.title} (Player ID: ${responseData.playerId})`);
-                
-                // 応答データを適切な形式に変換
-                const formResponse: FormResponse = {
-                  success: !responseData.canceled,
-                  cancelled: responseData.canceled,
-                  buttonId: responseData.result?.selectedIndex,
-                  buttonText: responseData.result?.selectedButton,
-                  formData: responseData.result?.values || responseData.result?.elements?.map((e: any) => e.value),
-                  error: responseData.canceled ? 'User cancelled' : undefined
-                };
+        // フォーム応答データかどうかを判定
+        const isFormResponse = this.isFormResponseData(responseData);
+        if (!isFormResponse) {
+          console.log(`🚫 [FormResponseMonitor] フォーム応答ではないデータをスキップ: ID=${responseId}`);
+          continue;
+        }
 
-                // コールバックを実行
-                try {
-                  data.callback(formResponse, data.player);
-                } catch (error) {
-                  console.error(`❌ [FormResponseMonitor] コールバック実行エラー:`, error);
-                }
-
-                // 監視を停止（一度だけ実行）
-                this.stopMonitoring(formId);
-                foundByTitle = true;
-                break;
-              }
-            }
-          }
+        // 監視中のフォームを全て確認して、プレイヤーIDが一致するものを探す
+        let matchingForm: { formId: string; data: any } | null = null;
+        
+        for (const [formId, monitoringData] of this.monitoringForms.entries()) {
+          // プレイヤーIDで比較（名前の数値化されたものと比較）
+          const expectedPlayerId = monitoringData.playerId;
+          const responsePlayerId = responseData.playerId || responseData.playerName ? nameToNumber(responseData.playerName) : null;
           
-          if (!foundByTitle) {
-            continue;
-          } else {
-            // 既にマッチした場合、通常の処理をスキップ
-            continue;
+          console.log(`🔍 [FormResponseMonitor] ID比較: 期待値=${expectedPlayerId}, 応答=${responsePlayerId}, 名前=${responseData.playerName}`);
+          
+          if (responsePlayerId === expectedPlayerId) {
+            // 時間的にも近いかチェック（2分以内に厳しく制限）
+            const formTimestamp = parseInt(formId.split('_')[1]);
+            const responseTime = responseData.timestamp || Date.now();
+            const timeDiff = Math.abs(responseTime - formTimestamp);
+            
+            console.log(`⏱️ [FormResponseMonitor] 時間チェック: フォーム=${new Date(formTimestamp).toISOString()}, 応答=${new Date(responseTime).toISOString()}, 差=${timeDiff}ms`);
+            
+            if (timeDiff < 120000) { // 2分以内
+              matchingForm = { formId, data: monitoringData };
+              console.log(`📨 [FormResponseMonitor] マッチング成功: フォーム=${formId}, 応答ID=${responseId}, プレイヤー=${responseData.playerName}`);
+              break;
+            } else {
+              console.log(`⏰ [FormResponseMonitor] 時間差が大きすぎます: ${timeDiff}ms (>2分)`);
+            }
           }
         }
 
-        console.log(`📨 [FormResponseMonitor] フォーム応答を検知: ${responseData.formId || responseData.title} (Player ID: ${responseData.playerId})`);
+        if (!matchingForm) {
+          console.log(`� [FormResponseMonitor] マッチするフォームが見つかりません: プレイヤー=${responseData.playerName}, 応答ID=${responseId}`);
+          continue;
+        }
 
         // 応答データを適切な形式に変換
+        console.log(`🔍 [FormResponseMonitor] 元の応答データ:`, JSON.stringify(responseData, null, 2));
+        
+        // フォーム応答の基本情報を抽出
+        const isCancelled = responseData.canceled || responseData.cancelled || false;
+        let buttonId: number | undefined;
+        let buttonText: string | undefined;
+        let formData: any[] | undefined;
+
+        // 各種応答形式に対応
+        if (responseData.result) {
+          buttonId = responseData.result.selectedIndex;
+          buttonText = responseData.result.selectedButton;
+          formData = responseData.result.values || (responseData.result.elements ? responseData.result.elements.map((e: any) => e.value) : undefined);
+        } else if (responseData.selection) {
+          buttonId = responseData.selection.selectedIndex;
+          buttonText = responseData.selection.selectedButton;
+          formData = responseData.selection.values;
+        } else {
+          // 直接的なプロパティ
+          buttonId = responseData.selectedIndex;
+          buttonText = responseData.selectedButton;
+          formData = responseData.values;
+        }
+
         const formResponse: FormResponse = {
-          success: !responseData.canceled,
-          cancelled: responseData.canceled,
-          buttonId: responseData.result?.selectedIndex,
-          buttonText: responseData.result?.selectedButton,
-          formData: responseData.result?.values || responseData.result?.elements?.map((e: any) => e.value),
-          error: responseData.canceled ? 'User cancelled' : undefined
+          success: !isCancelled,
+          cancelled: isCancelled,
+          buttonId,
+          buttonText,
+          formData,
+          error: isCancelled ? 'User cancelled' : undefined
         };
+
+        console.log(`📝 [FormResponseMonitor] 変換後の応答:`, JSON.stringify(formResponse, null, 2));
 
         // コールバックを実行
         try {
-          monitoringData.callback(formResponse, monitoringData.player);
+          matchingForm.data.callback(formResponse, matchingForm.data.player);
+          console.log(`✅ [FormResponseMonitor] コールバック実行成功: ${matchingForm.formId}`);
         } catch (error) {
           console.error(`❌ [FormResponseMonitor] コールバック実行エラー:`, error);
         }
 
         // 監視を停止（一度だけ実行）
-        this.stopMonitoring(responseData.formId);
+        this.stopMonitoring(matchingForm.formId);
       }
 
       // 古いIDを削除（メモリリーク防止）
@@ -320,13 +367,23 @@ export class FormBuilder {
       let command: string;
 
       if (this.formType === 'action') {
-        // アクションフォーム用のコマンドを構築（正しい形式）
-        const buttonsJson = JSON.stringify(this.buttons);
-        command = `/scriptevent command:createactionform "${this.formTitle}" "${this.formContent}" ${buttonsJson}`;
+        // ActionForm用の統合JSON形式
+        const formConfig = {
+          type: 'action',
+          title: this.formTitle,
+          body: this.formContent,
+          buttons: this.buttons
+        };
+        const formJson = JSON.stringify(formConfig);
+        command = `/scriptevent command:createForm ${formJson}`;
+        console.log(`🔍 [FormBuilder] ActionForm Config:`, formConfig);
       } else {
-        // モーダルフォーム用のコマンドを構築（正しい形式）
-        const elementsJson = JSON.stringify(this.elements);
-        command = `/scriptevent command:createmodalform "${this.formTitle}" ${elementsJson}`;
+        // モーダルフォーム用のコマンドを構築（要素数とタイトルで分割送信）
+        const elementsCount = this.elements.length;
+        const elementsArgs = this.elements.map(element => JSON.stringify(element)).join(' ');
+        command = `/scriptevent command:createmodalform "${this.formTitle}" ${elementsCount} ${elementsArgs}`;
+        console.log(`🔍 [FormBuilder] Elements Count: ${elementsCount}`);
+        console.log(`� [FormBuilder] Elements Args: ${elementsArgs}`);
       }
 
       // コールバックが設定されている場合、応答監視を開始
