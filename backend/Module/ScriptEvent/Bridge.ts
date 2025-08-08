@@ -9,7 +9,16 @@ interface CommunicationData {
 }
 
 // データハンドラの型定義
-type DataHandler = (data: CommunicationData) => Promise<CommunicationData | void>;
+// レスポンス用の型定義
+interface BridgeResponse {
+    id: string;
+    timestamp: number;
+    type: string;
+    jsonData?: any;
+}
+
+// データハンドラの型定義（BridgeResponseまたはvoidを返す）
+type DataHandler = (data: CommunicationData) => Promise<BridgeResponse | void>;
 
 // デバッグフラグ
 const DEBUG_BRIDGE = true;
@@ -504,13 +513,30 @@ class DataBridge {
 
             try {
                 // データハンドラを実行
+
                 for (const handler of this.dataHandlers) {
                     try {
                         const response = await handler(data);
-
-                        // ハンドラからレスポンスが返された場合、OUTBOXに送信
-                        if (response) {
-                            await this.send(response.data, response.id);
+                        // BridgeResponse型かつ必須プロパティが揃っているかチェック
+                        if (response && typeof response === 'object' && typeof response.id === 'string' && typeof response.timestamp === 'number' && typeof response.type === 'string') {
+                            // OUTBOXに送信するデータを構築
+                            const outboxData = {
+                                id: response.id,
+                                timestamp: response.timestamp,
+                                type: response.type,
+                                data: response.jsonData !== undefined ? response.jsonData : null
+                            };
+                            // 送信前にJSON化できるか検証
+                            try {
+                                JSON.stringify(outboxData);
+                                debugLog(`[OUTBOX] Sending response to OUTBOX: ${JSON.stringify(outboxData)}`);
+                                await this.send(outboxData, response.id);
+                            } catch (jsonErr) {
+                                debugError(`[OUTBOX] Handler response could not be stringified, skipping OUTBOX send:`, jsonErr);
+                                debugError(`[OUTBOX] Problematic response:`, response);
+                            }
+                        } else if (response) {
+                            debugError(`[OUTBOX] Handler returned invalid response, skipping OUTBOX send:`, response);
                         }
                     } catch (handlerError) {
                         debugError(`Error in data handler:`, handlerError);

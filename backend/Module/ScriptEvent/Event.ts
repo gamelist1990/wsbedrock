@@ -131,8 +131,8 @@ function initializeEventListenerInternal(): void {
             return {
                 id: `ack_${data.id}`,
                 timestamp: Date.now(),
-                data: {
-                    type: 'event_acknowledged',
+                type: 'event_acknowledged', 
+                jsonData: {
                     originalEventType: 'break',
                     originalId: data.id,
                     processed: true
@@ -148,125 +148,9 @@ function initializeEventListenerInternal(): void {
     console.log('   🌍 World-aware event processing enabled');
 }
 
-/**
- * テスト用のサンプルイベント送信（コンパクト版）
- */
-async function sendTestEvent(): Promise<void> {
-    // ワールドが利用可能かチェック
-    if (!utils?.world?.hasWorlds()) {
-        console.warn('⚠️ [Test] ワールドが利用可能でないため、テストイベント送信をスキップしました');
-        return;
-    }
 
-    debugLog('Sending test compact player_break_block event...');
-    
-    const testEvent: CompactBlockBreakEventData = {
-        type: 'break',
-        p: {
-            id: 'test_player_123',
-            n: 'TestPlayer',
-            x: 100,
-            y: 65,
-            z: 200
-        },
-        b: {
-            t: 'minecraft:stone',
-            x: 100,
-            y: 64,
-            z: 200
-        },
-        tool: 'minecraft:diamond_pickaxe',
-        ts: Date.now(),
-        dim: 'overworld'
-    };
-    
-    const success = await bridge.send(testEvent, 'test_compact_break_event');
-    
-    if (success) {
-        debugLog('Test event sent successfully');
-        console.log('✅ [TEST] Test compact player_break_block event sent');
-    } else {
-        console.error('❌ [TEST] Failed to send test event');
-    }
-}
 
-/**
- * 強制クリーンアップ実行（データ品質問題の修復）
- */
-async function forceCleanupEventData(): Promise<void> {
-    // ワールドが利用可能かチェック
-    if (!utils?.world?.hasWorlds()) {
-        console.warn('⚠️ [Force Cleanup] ワールドが利用可能でないため、クリーンアップをスキップしました');
-        return;
-    }
 
-    debugLog('Performing force cleanup of event data...');
-    console.log('🧹 [FORCE_CLEANUP] Starting force cleanup of corrupted/invalid data...');
-    
-    try {
-        // 強制クリーンアップを実行
-        await bridge.forceCleanup();
-        console.log('✅ [FORCE_CLEANUP] Force cleanup completed successfully');
-        console.log('   📋 All invalid and duplicate data has been removed');
-        console.log('   🔄 Processed ID cache has been reset');
-        console.log('   💡 Data Bridge is now in a clean state');
-    } catch (error) {
-        console.error('❌ [FORCE_CLEANUP] Error during force cleanup:', error);
-    }
-}
-
-/**
- * データベース整合性チェック
- */
-async function checkDataIntegrity(): Promise<void> {
-    try {
-        debugLog('Checking data integrity...');
-        console.log('🔍 [DATA_CHECK] Checking inbox data integrity...');
-        
-        const inboxData = await bridge.getInboxData();
-        let validCount = 0;
-        let invalidCount = 0;
-        let undefinedIdCount = 0;
-        let duplicateIdCount = 0;
-        const seenIds = new Set<string>();
-        
-        for (const data of inboxData) {
-            if (!data || typeof data !== 'object') {
-                invalidCount++;
-                continue;
-            }
-            
-            if (!data.id || data.id === 'undefined' || typeof data.id !== 'string') {
-                undefinedIdCount++;
-                continue;
-            }
-            
-            if (seenIds.has(data.id)) {
-                duplicateIdCount++;
-            } else {
-                seenIds.add(data.id);
-                validCount++;
-            }
-        }
-        
-        console.log(`📊 [DATA_CHECK] Integrity check results:`);
-        console.log(`   ✅ Valid data: ${validCount}`);
-        console.log(`   ❌ Invalid data: ${invalidCount}`);
-        console.log(`   ⚠️ Undefined ID data: ${undefinedIdCount}`);
-        console.log(`   🔄 Duplicate ID data: ${duplicateIdCount}`);
-        
-        const problemCount = invalidCount + undefinedIdCount + duplicateIdCount;
-        if (problemCount > 0) {
-            console.log(`⚠️ [DATA_CHECK] Found ${problemCount} data quality issues`);
-            console.log('   💡 Recommend running force cleanup: /event forceCleanup');
-        } else {
-            console.log('✅ [DATA_CHECK] All data is valid and consistent');
-        }
-        
-    } catch (error) {
-        console.error('❌ [DATA_CHECK] Error during integrity check:', error);
-    }
-}
 async function showEventStats(): Promise<void> {
     try {
         // ワールド状況をチェック
@@ -357,7 +241,6 @@ async function showEventStats(): Promise<void> {
 
 
 
-
 // 自動初期化
 console.log('🎮 [EVENT_MODULE] Compact player_break_block Event module loaded');
 
@@ -365,7 +248,6 @@ console.log('🎮 [EVENT_MODULE] Compact player_break_block Event module loaded'
 export { 
     handlePlayerBreakBlock, 
     processEventData,
-    sendTestEvent,
     showEventStats
 };
 

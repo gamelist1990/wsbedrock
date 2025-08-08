@@ -38,6 +38,7 @@ class DataBridge {
     private pollingInterval: number = 20; // 20tick = 1s
     private pollingTimer?: number;
     private lastProcessedIds: Set<string> = new Set(); // 処理済みデータID
+    private isProcessingData: boolean = false;
 
     // テーブル名の定数
     private readonly OUTBOX_TABLE = 'data_bridge_outbox';    // Backend → Client
@@ -276,111 +277,91 @@ class DataBridge {
      * データをポーリングして処理（OUTBOX: Backend→Client）
      */
     private async pollForData(): Promise<void> {
+        if (this.isProcessingData) {
+            debugLog('[CLIENT] Skipping poll: already processing');
+            return;
+        }
+        this.isProcessingData = true;
         try {
             debugLog('[CLIENT] Polling for incoming data from OUTBOX...');
-
-            // Outboxテーブルから新しいデータを取得（Backend → Client）
-            const result = jsonDB.list(this.OUTBOX_TABLE);
-            
+            const result = await jsonDB.list(this.OUTBOX_TABLE);
             if (!result.success) {
                 debugError(`[CLIENT] Failed to list OUTBOX data:`, result.error);
                 return;
             }
-
             if (!result.data || !result.data.items) {
                 debugLog('[CLIENT] No data found in OUTBOX');
                 return;
             }
-
             debugLog(`[CLIENT] Found ${result.data.items.length} total items in OUTBOX`);
-
             const dataItems = result.data.items
                 .map((item: any) => ({ key: item.id, data: item.data as CommunicationData }))
                 .filter(({ data }) => data && data.id && !this.lastProcessedIds.has(data.id))
                 .sort((a, b) => a.data.timestamp - b.data.timestamp);
-
             debugLog(`[CLIENT] Found ${dataItems.length} new unprocessed data items in OUTBOX`);
-
-            if (dataItems.length > 0) {
-                for (const { data } of dataItems) {
+            for (const { key, data } of dataItems) {
+                try {
                     await this.processIncomingData(data);
+                    await this.deleteOutboxDataWithRetry(key, data.id);
+                } catch (err) {
+                    debugError(`[CLIENT] Error processing or deleting OUTBOX data:`, err);
                 }
-
-                // すべてのデータ処理後に、処理済みアイテムをOUTBOXから削除
-                await this.cleanupProcessedOutboxData();
             }
-
         } catch (error) {
             debugError('[CLIENT] Error polling for OUTBOX data:', error);
+        } finally {
+            this.isProcessingData = false;
         }
+    }
+
+    /**
+     * OUTBOXデータを削除（リトライ付き）
+     */
+    private async deleteOutboxDataWithRetry(key: number, dataId: string, maxRetries = 3): Promise<void> {
+        let retry = 0;
+        while (retry < maxRetries) {
+            try {
+                const deleteResult = await jsonDB.delete(this.OUTBOX_TABLE, key);
+                if (deleteResult.success) {
+                    debugLog(`[CLIENT] OUTBOX data ${dataId} deleted (key: ${key})`);
+                    return;
+                } else {
+                    debugError(`[CLIENT] Failed to delete OUTBOX data ${dataId} (key: ${key}):`, deleteResult.error);
+                }
+            } catch (err) {
+                debugError(`[CLIENT] Exception deleting OUTBOX data ${dataId} (key: ${key}):`, err);
+            }
+            retry++;
+            await new Promise(res => setTimeout(res, 100 * retry));
+        }
+        debugError(`[CLIENT] Gave up deleting OUTBOX data ${dataId} after ${maxRetries} attempts.`);
     }
 
     /**
      * 受信データを処理（OUTBOX: Backend→Client）
      */
     private async processIncomingData(data: CommunicationData): Promise<void> {
-        try {
-            // データIDの重複チェック
-            if (this.lastProcessedIds.has(data.id)) {
-                debugLog(`[CLIENT] Data ${data.id} already processed, skipping`);
-                return;
-            }
-
-            debugLog(`[CLIENT] Processing data ${data.id} from OUTBOX`);
-
-            // データハンドラを実行
-            for (const handler of this.dataHandlers) {
-                try {
-                    const response = await handler(data);
-                    
-                    // ハンドラからレスポンスが返された場合、INBOXに送信
-                    if (response) {
-                        await this.send(response.data, response.id);
-                    }
-                } catch (handlerError) {
-                    debugError(`[CLIENT] Error in data handler:`, handlerError);
-                }
-            }
-
-            // 処理済みとしてマーク
-            this.lastProcessedIds.add(data.id);
-            debugLog(`[CLIENT] Data ${data.id} processed and marked for cleanup`);
-
-        } catch (error) {
-            debugError(`[CLIENT] Error processing data ${data.id}:`, error);
+        // データIDの重複チェック
+        if (this.lastProcessedIds.has(data.id)) {
+            debugLog(`[CLIENT] Data ${data.id} already processed, skipping`);
+            return;
         }
+        debugLog(`[CLIENT] Processing data ${data.id} from OUTBOX`);
+        for (const handler of this.dataHandlers) {
+            try {
+                const response = await handler(data);
+                if (response) {
+                    await this.send(response.data, response.id);
+                }
+            } catch (handlerError) {
+                debugError(`[CLIENT] Error in data handler:`, handlerError);
+            }
+        }
+        this.lastProcessedIds.add(data.id);
+        debugLog(`[CLIENT] Data ${data.id} processed and marked for cleanup`);
     }
 
-    /**
-     * 処理済みデータをOUTBOXから削除
-     */
-    private async cleanupProcessedOutboxData(): Promise<void> {
-        try {
-            const result = jsonDB.list(this.OUTBOX_TABLE);
-            if (!result.success || !result.data.items) {
-                return;
-            }
-
-            let cleanedCount = 0;
-            for (const item of result.data.items) {
-                const data = item.data as CommunicationData;
-                if (data && data.id && this.lastProcessedIds.has(data.id)) {
-                    const deleteResult = jsonDB.delete(this.OUTBOX_TABLE, item.id);
-                    if (deleteResult.success) {
-                        cleanedCount++;
-                        debugLog(`[CLIENT] Removed processed data ${data.id} from OUTBOX`);
-                    }
-                }
-            }
-
-            if (cleanedCount > 0) {
-                debugLog(`[CLIENT] Cleaned up ${cleanedCount} processed items from OUTBOX`);
-            }
-
-        } catch (error) {
-            debugError('[CLIENT] Error cleaning up processed OUTBOX data:', error);
-        }
-    }
+    // cleanupProcessedOutboxDataは不要になったため削除
 
     /**
      * データIDを生成
