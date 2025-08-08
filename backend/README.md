@@ -1,7 +1,33 @@
 # wsbedrock-backend
 
 Minecraft Bedrock Edition 用 WebSocket サーバーバックエンドです。  
-`socket-be` を利用し、コマンドやモジュールの自動ロード、チャットコマンド連携などを提供します。
+`socket-be` を利用し、コマンドやモジュールの自動ロード、チャットコマンド連携、双方向通信などを提供します。
+
+## 🎯 新機能: Mutual Protocol
+
+クライアントとBackend間で双方向通信を実現するMutual Protocolが追加されました。
+MinecraftのスコアボードシステムをJSONデータベースとして活用し、リアルタイム通信を可能にします。
+
+### 主な機能
+- 📡 チャンネルベースの通信
+- 🔄 リクエスト/レスポンス型通信
+- 📢 リアルタイム通知
+- 💬 チャット通信
+- 📁 データ同期
+
+### 管理コマンド
+```
+/mutual channels                    - チャンネル一覧
+/mutual create <名前> [説明]       - チャンネル作成
+/mutual send <チャンネル> <内容>   - メッセージ送信
+/mutual history                     - 履歴表示
+/mutual stats                       - 統計情報
+/mutual test [チャンネル]          - テスト送信
+/mutual cleanup                     - データ削除
+/mutual help                        - ヘルプ表示
+```
+
+詳細は [Mutual Protocol 仕様書](./docs/MutualProtocol.md) を参照してください。
 
 ## セットアップ
 

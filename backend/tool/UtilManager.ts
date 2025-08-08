@@ -3,6 +3,7 @@ import { StringUtil } from './StringUtil.js';
 import { DateUtil } from './DateUtil.js';
 import { LogUtil } from './LogUtil.js';
 import { TimeUtil } from './TimeUtil.js';
+import { WorldUtil } from './WorldUtil.js';
 
 /**
  * Utilityシステムのメイン管理クラス
@@ -14,6 +15,7 @@ export class UtilManager {
   public readonly date: DateUtil;
   public readonly log: LogUtil;
   public readonly time: TimeUtil;
+  public readonly world: WorldUtil;
 
   // シングルトンインスタンス
   private static instance: UtilManager | null = null;
@@ -27,6 +29,7 @@ export class UtilManager {
     this.date = new DateUtil();
     this.log = new LogUtil();
     this.time = new TimeUtil();
+    this.world = new WorldUtil();
   }
 
   /**
@@ -50,7 +53,8 @@ export class UtilManager {
         this.string,
         this.date,
         this.log,
-        this.time
+        this.time,
+        this.world
       ];
 
       // 各Utilの初期化を並行実行
@@ -78,7 +82,8 @@ export class UtilManager {
         this.string,
         this.date,
         this.log,
-        this.time
+        this.time,
+        this.world
       ];
 
       // 各Utilのクリーンアップを並行実行
@@ -107,7 +112,7 @@ export class UtilManager {
   } {
     return {
       initialized: true,
-      availableUtils: ['string', 'date', 'file', 'log', 'time'],
+      availableUtils: ['string', 'date', 'file', 'log', 'time', 'world'],
       version: '1.0.0'
     };
   }
@@ -128,7 +133,8 @@ export class UtilManager {
         date: 0,
         file: 0,
         log: 0,
-        time: 0
+        time: 0,
+        world: 0
       }
     };
   }

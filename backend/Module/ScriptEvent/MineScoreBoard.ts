@@ -140,7 +140,6 @@ class JsonScoreboardDatabase {
             debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: getOrCreateObjective completed successfully for: ${tableName}`);
             return true;
         } catch (error) {
-            console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: Error accessing JSON table ${tableName}:`, error);
             return false;
         }
     }
@@ -796,14 +795,7 @@ const jsonDB = {
 debugLog("[JsonScoreboardDatabase] Backend JSON Database initialized");
 debugLog("[JsonScoreboardDatabase] Current mode: Command-based approach (Socket-BE API compatibility mode)");
 
-// socket-be のスコアボードAPI確認と将来対応:
-// - server.getWorlds() で全ワールドを取得
-// - 現在のsocket-beではスコアボードAPIが制限的なため、コマンドベース方式を使用
-// - 将来のAPIアップデートでスコアボード直接操作が可能になる予定
-server.getWorlds().forEach(world => {
-    const hasScoreboard = world.scoreboard ? ' (scoreboard object available)' : ' (command-only)';
-    debugLog(`[JsonScoreboardDatabase] Available world: ${world.name}${hasScoreboard}`);
-});
+
 
 
 // エクスポート

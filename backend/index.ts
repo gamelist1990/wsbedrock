@@ -3,6 +3,10 @@ import { settings } from './settings.js';
 import { ModuleLoader } from './Loader.js';
 import { UtilManager } from './tool/UtilManager.js';
 
+// Data Bridge インポート
+import dataBridge, { bridge } from './Module/ScriptEvent/Bridge.js';
+import { initializeEventListener } from './Module/ScriptEvent/Event.js';
+
 // Utilシステムの初期化
 const utils = UtilManager.getInstance();
 
@@ -110,6 +114,16 @@ server.on(ServerEvent.Open, async () => {
     
     // 自動ロード機能を実行
     await moduleLoader.autoLoad();
+    
+    // Data Bridge の初期化
+    console.log('🔗 Initializing Data Bridge...');
+    bridge.startListening();
+    
+    // イベントリスナーの初期化
+    initializeEventListener();
+    
+    console.log('✅ Data Bridge and Event System initialized successfully');
+    
   } catch (error) {
     console.error('💥 サーバー起動中にエラーが発生しました:', error);
     // エラーが発生してもサーバーは続行
@@ -119,6 +133,10 @@ server.on(ServerEvent.Open, async () => {
 server.on(ServerEvent.Close, async () => {
   try {
     console.log('🔌 Server closed');
+    
+    // Data Bridge の停止
+    bridge.stopListening();
+    console.log('🔗 Data Bridge stopped');
     
     // Utilシステムのクリーンアップ
     await utils.cleanup();
@@ -138,3 +156,6 @@ server.on(ServerEvent.WorldRemove, (world) => {
 
 // Utilシステムをエクスポート（他のモジュールから使用可能に）
 export { utils, server };
+
+// Data Bridge をエクスポート（他のモジュールから使用可能に）
+export { dataBridge, bridge };
