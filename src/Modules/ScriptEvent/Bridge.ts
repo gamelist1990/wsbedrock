@@ -1,7 +1,5 @@
-import { jsonScoreboardDB } from './jsonScoreboardBridge';
-
-// Direct APIインスタンスを取得
-const jsonDB = jsonScoreboardDB.direct;
+import { jsonDB } from './jsonScoreboardBridge';
+// import { utils } from '../../index.js'; // utilsは使用しないためコメントアウト
 
 // 汎用データ通信の型定義
 interface CommunicationData {
@@ -64,7 +62,7 @@ class DataBridge {
             const timestamp = Date.now();
             const dataId = id || this.generateDataId();
 
-            debugLog(`Sending data with ID: ${dataId}`);
+            debugLog(`[CLIENT] Sending data to INBOX with ID: ${dataId}`);
 
             const communicationData: CommunicationData = {
                 id: dataId,
@@ -72,19 +70,19 @@ class DataBridge {
                 data
             };
 
-            // InboxテーブルにデータをJSONとして保存（Client → Backend）
+            // Inboxテーブルにデータを送信（Client → Backend）
             const dataKey = this.generateDataKey(dataId, timestamp);
             const result = jsonDB.set(this.INBOX_TABLE, dataKey, communicationData);
 
             if (result.success) {
-                debugLog(`Data sent successfully with ID: ${dataId}`);
+                debugLog(`[CLIENT] Data sent successfully to INBOX with ID: ${dataId}`);
                 return true;
             } else {
-                debugError(`Failed to send data:`, result.error);
+                debugError(`[CLIENT] Failed to send data to INBOX:`, result.error);
                 return false;
             }
         } catch (error) {
-            debugError(`Error sending data:`, error);
+            debugError(`[CLIENT] Error sending data:`, error);
             return false;
         }
     }
@@ -185,92 +183,121 @@ class DataBridge {
     }
 
     /**
-     * 古いデータをクリーンアップ
+     * 古いデータをクリーンアップ（クライアント側：INBOXの送信済み、OUTBOXの処理済み）
      */
     public async cleanupOldData(olderThanMs: number = 24 * 60 * 60 * 1000): Promise<void> {
         try {
             const cutoffTime = Date.now() - olderThanMs;
-            debugLog(`Cleaning up data older than ${new Date(cutoffTime).toISOString()}`);
+            debugLog(`[CLIENT] Cleaning up data older than ${new Date(cutoffTime).toISOString()}`);
 
-            // 実装簡略化 - 必要に応じて詳細な削除ロジックを追加
-            jsonDB.clear(this.OUTBOX_TABLE);
-            jsonDB.clear(this.INBOX_TABLE);
+            let cleanedCount = 0;
 
-            debugLog('Cleanup completed');
+            // INBOX（送信済み）の古いデータを削除
+            const inboxData = await this.getInboxData();
+            for (const data of inboxData) {
+                if (data.timestamp < cutoffTime) {
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    const result = jsonDB.delete(this.INBOX_TABLE, dataKey);
+                    if (result.success) {
+                        cleanedCount++;
+                    }
+                }
+            }
+
+            // OUTBOX（処理済み）の古いデータを削除
+            const outboxData = await this.getOutboxData();
+            for (const data of outboxData) {
+                if (data.timestamp < cutoffTime && this.lastProcessedIds.has(data.id)) {
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    const result = jsonDB.delete(this.OUTBOX_TABLE, dataKey);
+                    if (result.success) {
+                        cleanedCount++;
+                    }
+                }
+            }
+
+            debugLog(`[CLIENT] Cleanup completed: removed ${cleanedCount} old items`);
         } catch (error) {
-            debugError('Error during cleanup:', error);
+            debugError('[CLIENT] Error during cleanup:', error);
         }
     }
 
     // プライベートメソッド
 
     /**
-     * データをポーリングして処理
+     * データをポーリングして処理（OUTBOX: Backend→Client）
      */
     private async pollForData(): Promise<void> {
         try {
-            debugLog('Polling for incoming data...');
+            debugLog('[CLIENT] Polling for incoming data from OUTBOX...');
 
             // Outboxテーブルから新しいデータを取得（Backend → Client）
             const result = jsonDB.list(this.OUTBOX_TABLE);
             
             if (!result.success || !result.data.items) {
-                debugLog('No data found in outbox');
+                debugLog('[CLIENT] No data found in OUTBOX');
                 return;
             }
 
             const dataItems = result.data.items
                 .map((item: any) => ({ key: item.id, data: item.data as CommunicationData }))
+                .filter(({ data }) => data && data.id && !this.lastProcessedIds.has(data.id))
                 .sort((a, b) => a.data.timestamp - b.data.timestamp);
 
-            debugLog(`Found ${dataItems.length} data items in outbox`);
+            if (dataItems.length > 0) {
+                debugLog(`[CLIENT] Found ${dataItems.length} new data items in OUTBOX`);
 
-            for (const { key, data } of dataItems) {
-                await this.processIncomingData(data, key);
+                for (const { key, data } of dataItems) {
+                    await this.processIncomingData(data, key);
+                }
             }
 
         } catch (error) {
-            debugError('Error polling for data:', error);
+            debugError('[CLIENT] Error polling for OUTBOX data:', error);
         }
     }
 
     /**
-     * 受信データを処理
+     * 受信データを処理（OUTBOX: Backend→Client）
      */
     private async processIncomingData(data: CommunicationData, dataKey: number): Promise<void> {
         try {
             // データIDの重複チェック
             if (this.lastProcessedIds.has(data.id)) {
-                debugLog(`Data ${data.id} already processed, skipping`);
+                debugLog(`[CLIENT] Data ${data.id} already processed, deleting duplicate from OUTBOX`);
+                jsonDB.delete(this.OUTBOX_TABLE, dataKey);
                 return;
             }
 
-            debugLog(`Processing data ${data.id}`);
+            debugLog(`[CLIENT] Processing data ${data.id} from OUTBOX`);
 
             // データハンドラを実行
             for (const handler of this.dataHandlers) {
                 try {
                     const response = await handler(data);
                     
-                    // ハンドラからレスポンスが返された場合、送信
+                    // ハンドラからレスポンスが返された場合、INBOXに送信
                     if (response) {
                         await this.send(response.data, response.id);
                     }
                 } catch (handlerError) {
-                    debugError(`Error in data handler:`, handlerError);
+                    debugError(`[CLIENT] Error in data handler:`, handlerError);
                 }
             }
 
             // 処理済みとしてマーク
             this.lastProcessedIds.add(data.id);
 
-            // データを削除（処理済みなので）
-            jsonDB.delete(this.OUTBOX_TABLE, dataKey);
-            
-            debugLog(`Data ${data.id} processed and removed from outbox`);
+            // 処理済みデータをOUTBOXから削除
+            const deleteResult = jsonDB.delete(this.OUTBOX_TABLE, dataKey);
+            if (deleteResult.success) {
+                debugLog(`[CLIENT] Data ${data.id} processed and removed from OUTBOX`);
+            } else {
+                debugError(`[CLIENT] Failed to delete data ${data.id} from OUTBOX:`, deleteResult.error);
+            }
 
         } catch (error) {
-            debugError(`Error processing data ${data.id}:`, error);
+            debugError(`[CLIENT] Error processing data ${data.id}:`, error);
         }
     }
 
@@ -329,5 +356,7 @@ export { DataBridge };
 // デフォルトエクスポート
 export default dataBridge;
 
-debugLog('DataBridge initialized');
-debugLog('Ready for bidirectional data communication via MineScoreBoard JSON database');
+debugLog('[CLIENT] DataBridge initialized');
+debugLog('[CLIENT] Ready for bidirectional data communication via jsonScoreboardBridge');
+debugLog('[CLIENT] - Sends data to INBOX (Client → Backend)');
+debugLog('[CLIENT] - Receives data from OUTBOX (Backend → Client)');
