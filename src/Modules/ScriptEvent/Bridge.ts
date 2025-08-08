@@ -1,5 +1,5 @@
+import { system } from '@minecraft/server';
 import { jsonDB } from './jsonScoreboardBridge';
-// import { utils } from '../../index.js'; // utilsは使用しないためコメントアウト
 
 // 汎用データ通信の型定義
 interface CommunicationData {
@@ -35,8 +35,8 @@ class DataBridge {
     private static instance: DataBridge;
     private dataHandlers: DataHandler[] = [];
     private isListening: boolean = false;
-    private pollingInterval: number = 1000; // 1秒間隔でポーリング
-    private pollingTimer?: NodeJS.Timeout;
+    private pollingInterval: number = 20; // 20tick = 1s
+    private pollingTimer?: number;
     private lastProcessedIds: Set<string> = new Set(); // 処理済みデータID
 
     // テーブル名の定数
@@ -45,6 +45,10 @@ class DataBridge {
 
     private constructor() {
         debugLog('DataBridge instance created');
+        // 初期化時にoutboxとinboxの全データを削除
+        this.clearAllTables();
+        // 自動でリスニング開始
+        this.startListening();
     }
 
     public static getInstance(): DataBridge {
@@ -107,11 +111,12 @@ class DataBridge {
 
         debugLog('Starting data listener');
         this.isListening = true;
-        this.pollingTimer = setInterval(() => {
+        this.pollingTimer = system.runInterval(() => {
             this.pollForData();
         }, this.pollingInterval);
 
         debugLog(`Data listener started with ${this.pollingInterval}ms interval`);
+        debugLog(`Listening for OUTBOX data on table: ${this.OUTBOX_TABLE}`);
     }
 
     /**
@@ -126,8 +131,8 @@ class DataBridge {
         debugLog('Stopping data listener');
         this.isListening = false;
         
-        if (this.pollingTimer) {
-            clearInterval(this.pollingTimer);
+        if (this.pollingTimer !== undefined) {
+            system.clearRun(this.pollingTimer);
             this.pollingTimer = undefined;
         }
 
@@ -146,6 +151,17 @@ class DataBridge {
             this.stopListening();
             this.startListening();
         }
+    }
+
+    /**
+     * 現在のリスニング状態を取得
+     */
+    public getListeningStatus(): { isListening: boolean; pollingInterval: number; handlersCount: number } {
+        return {
+            isListening: this.isListening,
+            pollingInterval: this.pollingInterval,
+            handlersCount: this.dataHandlers.length
+        };
     }
 
     /**
@@ -225,6 +241,38 @@ class DataBridge {
     // プライベートメソッド
 
     /**
+     * 初期化時に全テーブルをクリア
+     */
+    private clearAllTables(): void {
+        try {
+            debugLog('Clearing all data tables on initialization...');
+
+            // OUTBOXテーブルのスコアボードオブジェクトを削除（Backend → Client）
+            const outboxResult = jsonDB.clear(this.OUTBOX_TABLE);
+            if (outboxResult.success) {
+                debugLog('OUTBOX scoreboard object cleared successfully');
+            } else {
+                debugError('Failed to clear OUTBOX scoreboard object:', outboxResult.error);
+            }
+
+            // INBOXテーブルのスコアボードオブジェクトを削除（Client → Backend）
+            const inboxResult = jsonDB.clear(this.INBOX_TABLE);
+            if (inboxResult.success) {
+                debugLog('INBOX scoreboard object cleared successfully');
+            } else {
+                debugError('Failed to clear INBOX scoreboard object:', inboxResult.error);
+            }
+
+            // 処理済みIDセットもクリア
+            this.lastProcessedIds.clear();
+            debugLog('All scoreboard objects cleared and processed IDs reset');
+
+        } catch (error) {
+            debugError('Error clearing scoreboard objects during initialization:', error);
+        }
+    }
+
+    /**
      * データをポーリングして処理（OUTBOX: Backend→Client）
      */
     private async pollForData(): Promise<void> {
@@ -234,22 +282,32 @@ class DataBridge {
             // Outboxテーブルから新しいデータを取得（Backend → Client）
             const result = jsonDB.list(this.OUTBOX_TABLE);
             
-            if (!result.success || !result.data.items) {
+            if (!result.success) {
+                debugError(`[CLIENT] Failed to list OUTBOX data:`, result.error);
+                return;
+            }
+
+            if (!result.data || !result.data.items) {
                 debugLog('[CLIENT] No data found in OUTBOX');
                 return;
             }
+
+            debugLog(`[CLIENT] Found ${result.data.items.length} total items in OUTBOX`);
 
             const dataItems = result.data.items
                 .map((item: any) => ({ key: item.id, data: item.data as CommunicationData }))
                 .filter(({ data }) => data && data.id && !this.lastProcessedIds.has(data.id))
                 .sort((a, b) => a.data.timestamp - b.data.timestamp);
 
-            if (dataItems.length > 0) {
-                debugLog(`[CLIENT] Found ${dataItems.length} new data items in OUTBOX`);
+            debugLog(`[CLIENT] Found ${dataItems.length} new unprocessed data items in OUTBOX`);
 
-                for (const { key, data } of dataItems) {
-                    await this.processIncomingData(data, key);
+            if (dataItems.length > 0) {
+                for (const { data } of dataItems) {
+                    await this.processIncomingData(data);
                 }
+
+                // すべてのデータ処理後に、処理済みアイテムをOUTBOXから削除
+                await this.cleanupProcessedOutboxData();
             }
 
         } catch (error) {
@@ -260,12 +318,11 @@ class DataBridge {
     /**
      * 受信データを処理（OUTBOX: Backend→Client）
      */
-    private async processIncomingData(data: CommunicationData, dataKey: number): Promise<void> {
+    private async processIncomingData(data: CommunicationData): Promise<void> {
         try {
             // データIDの重複チェック
             if (this.lastProcessedIds.has(data.id)) {
-                debugLog(`[CLIENT] Data ${data.id} already processed, deleting duplicate from OUTBOX`);
-                jsonDB.delete(this.OUTBOX_TABLE, dataKey);
+                debugLog(`[CLIENT] Data ${data.id} already processed, skipping`);
                 return;
             }
 
@@ -287,17 +344,41 @@ class DataBridge {
 
             // 処理済みとしてマーク
             this.lastProcessedIds.add(data.id);
-
-            // 処理済みデータをOUTBOXから削除
-            const deleteResult = jsonDB.delete(this.OUTBOX_TABLE, dataKey);
-            if (deleteResult.success) {
-                debugLog(`[CLIENT] Data ${data.id} processed and removed from OUTBOX`);
-            } else {
-                debugError(`[CLIENT] Failed to delete data ${data.id} from OUTBOX:`, deleteResult.error);
-            }
+            debugLog(`[CLIENT] Data ${data.id} processed and marked for cleanup`);
 
         } catch (error) {
             debugError(`[CLIENT] Error processing data ${data.id}:`, error);
+        }
+    }
+
+    /**
+     * 処理済みデータをOUTBOXから削除
+     */
+    private async cleanupProcessedOutboxData(): Promise<void> {
+        try {
+            const result = jsonDB.list(this.OUTBOX_TABLE);
+            if (!result.success || !result.data.items) {
+                return;
+            }
+
+            let cleanedCount = 0;
+            for (const item of result.data.items) {
+                const data = item.data as CommunicationData;
+                if (data && data.id && this.lastProcessedIds.has(data.id)) {
+                    const deleteResult = jsonDB.delete(this.OUTBOX_TABLE, item.id);
+                    if (deleteResult.success) {
+                        cleanedCount++;
+                        debugLog(`[CLIENT] Removed processed data ${data.id} from OUTBOX`);
+                    }
+                }
+            }
+
+            if (cleanedCount > 0) {
+                debugLog(`[CLIENT] Cleaned up ${cleanedCount} processed items from OUTBOX`);
+            }
+
+        } catch (error) {
+            debugError('[CLIENT] Error cleaning up processed OUTBOX data:', error);
         }
     }
 
@@ -339,6 +420,9 @@ export const bridge = {
     stopListening: () => dataBridge.stopListening(),
     setPollingInterval: (intervalMs: number) => dataBridge.setPollingInterval(intervalMs),
     
+    // ステータス確認
+    getListeningStatus: () => dataBridge.getListeningStatus(),
+    
     // データ取得
     getOutboxData: () => dataBridge.getOutboxData(),
     getInboxData: () => dataBridge.getInboxData(),
@@ -360,3 +444,4 @@ debugLog('[CLIENT] DataBridge initialized');
 debugLog('[CLIENT] Ready for bidirectional data communication via jsonScoreboardBridge');
 debugLog('[CLIENT] - Sends data to INBOX (Client → Backend)');
 debugLog('[CLIENT] - Receives data from OUTBOX (Backend → Client)');
+debugLog('[CLIENT] IMPORTANT: Remember to call bridge.startListening() to receive OUTBOX data!');

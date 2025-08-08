@@ -373,15 +373,9 @@ export { BlockBreakEventHandler };
 // デフォルトエクスポート
 export default blockBreakEventHandler;
 
-debugLog('BreakEvent Bridge initialized with response handling');
-debugLog('Ready to capture block break events and process backend responses');
+debugLog('BreakEvent Bridge initialized');
+debugLog('Ready to capture and forward player block break events');
 
 // 自動開始
 breakEventBridge.start();
-
-// テスト用レスポンスハンドラーを追加（デバッグ用）
-if (DEBUG_BREAK_EVENT) {
-    breakEventBridge.addTestResponseHandler();
-    debugLog('Test response handler added for debugging');
-}
 
