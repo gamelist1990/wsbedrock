@@ -145,8 +145,8 @@ class JsonScoreboardDatabase {
     }
 
     // スコアボード行を処理するヘルパーメソッド
-    private processScoreboardLines(lines: string[], targetId: number, timestamp: string): JsonDatabaseResponse {
-        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Processing ${lines.length} lines for ID ${targetId}`);
+    private processScoreboardLines(lines: string[], targetId: number, timestamp: string, targetTableName: string): JsonDatabaseResponse {
+        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Processing ${lines.length} lines for ID ${targetId} in table ${targetTableName}`);
 
         let currentParticipant = "";
 
@@ -163,46 +163,50 @@ class JsonScoreboardDatabase {
                 continue;
             }
 
-            // 形式2: "- JSON Table: tableName: score (tableName)"
-            const scoreMatch = line.match(/^-\s+JSON Table:\s+(.+?):\s+(\d+)\s+\((.+?)\)$/);
-            if (scoreMatch && currentParticipant) {
-                const tableNameInLine = scoreMatch[1].trim();
-                const score = parseInt(scoreMatch[2]);
-                const tableName = scoreMatch[3].trim();
+        // 形式2: "- JSON Table: tableName: score (tableName)"
+        const scoreMatch = line.match(/^-\s+JSON Table:\s+(.+?):\s+(\d+)\s+\((.+?)\)$/);
+        if (scoreMatch && currentParticipant) {
+            const tableNameInLine = scoreMatch[1].trim();
+            const score = parseInt(scoreMatch[2]);
+            const actualTableName = scoreMatch[3].trim();
 
-                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Found score entry - table: ${tableNameInLine}, score: ${score}, participant: "${currentParticipant.substring(0, 50)}..."`);
+            debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Found score entry - table: ${tableNameInLine}, score: ${score}, participant: "${currentParticipant.substring(0, 50)}..."`);
 
-                if (score === targetId) {
-                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Found matching ID ${targetId}, parsing JSON`);
-                    try {
-                        // エスケープされた文字列をアンエスケープ
-                        let unescapedParticipant = currentParticipant;
-                        
-                        // バックスラッシュエスケープを処理
-                        if (unescapedParticipant.includes('\\"')) {
-                            unescapedParticipant = unescapedParticipant.replace(/\\"/g, '"');
-                            debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Unescaped participant: "${unescapedParticipant.substring(0, 100)}..."`);
-                        }
-                        
-                        // participant名をJSONとしてパース
-                        const jsonData = JSON.parse(unescapedParticipant);
-                        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: JSON parsing completed successfully`);
-                        return {
-                            success: true,
-                            data: jsonData
-                        };
-                    } catch (parseError) {
-                        console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: JSON parse error:`, parseError);
-                        console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: Failed to parse: "${currentParticipant.substring(0, 100)}..."`);
-                        return {
-                            success: false,
-                            error: "Failed to parse JSON from participant name"
-                        };
+            // テーブル名の厳格なチェック: 要求されたテーブル名と実際のテーブル名が一致する場合のみ処理
+            if (actualTableName === targetTableName && score === targetId) {
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Found matching ID ${targetId} in correct table ${targetTableName}, parsing JSON`);
+                try {
+                    // エスケープされた文字列をアンエスケープ
+                    let unescapedParticipant = currentParticipant;
+                    
+                    // バックスラッシュエスケープを処理
+                    if (unescapedParticipant.includes('\\"')) {
+                        unescapedParticipant = unescapedParticipant.replace(/\\"/g, '"');
+                        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Unescaped participant: "${unescapedParticipant.substring(0, 100)}..."`);
                     }
+                    
+                    // participant名をJSONとしてパース
+                    const jsonData = JSON.parse(unescapedParticipant);
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: JSON parsing completed successfully for table ${targetTableName}`);
+                    return {
+                        success: true,
+                        data: jsonData
+                    };
+                } catch (parseError) {
+                    console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: JSON parse error:`, parseError);
+                    console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: Failed to parse: "${currentParticipant.substring(0, 100)}..."`);
+                    return {
+                        success: false,
+                        error: "Failed to parse JSON from participant name"
+                    };
+                }
+            } else {
+                // テーブル名が一致しない場合は無視
+                if (actualTableName !== targetTableName) {
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Skipping entry from different table: ${actualTableName} (looking for ${targetTableName})`);
                 }
             }
-
-            // 従来の形式も残しておく (フォールバック)
+        }            // 従来の形式も残しておく (フォールバック)
             let match = line.match(/^(.+):\s*(\d+)$/);
             if (!match) {
                 match = line.match(/^(.+?)\s*の\s*.+?\s*を\s*(\d+)\s*に設定しました/);
@@ -393,7 +397,7 @@ class JsonScoreboardDatabase {
                     }
 
                     // 全ての行を処理して、processScoreboardLinesに参加者行とスコア行のペア関係を維持
-                    return this.processScoreboardLines(lines, id, timestamp);
+                    return this.processScoreboardLines(lines, id, timestamp, tableName);
                 }
 
                 debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Both list commands failed`);
@@ -422,7 +426,7 @@ class JsonScoreboardDatabase {
       debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Processing ${lines.length} lines from scoreboard output`);
       
       // ヘルパーメソッドを使用して行を処理
-      return this.processScoreboardLines(lines, id, timestamp);
+      return this.processScoreboardLines(lines, id, timestamp, tableName);
     } catch (error) {
       console.error(`[JsonScoreboardDatabase][${timestamp}] ERROR: getJsonDirect error:`, error);
       return {
@@ -432,6 +436,9 @@ class JsonScoreboardDatabase {
     }
   }    // データを削除
     public async deleteJsonDirect(tableName: string, id: number): Promise<JsonDatabaseResponse> {
+        const timestamp = new Date().toISOString();
+        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: deleteJsonDirect called - table: ${tableName}, id: ${id}`);
+
         try {
             if (!(await this.getOrCreateObjective(tableName))) {
                 return {
@@ -450,17 +457,20 @@ class JsonScoreboardDatabase {
 
             const { world, scoreboard } = worldData;
 
-            // まずデータを取得して存在確認
+            // まず対象テーブルからデータを取得して存在確認
+            debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Getting data from target table ${tableName} before deletion`);
             const getResult = await this.getJsonDirect(tableName, id);
             if (!getResult.success) {
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: ID ${id} not found in target table ${tableName}`);
                 return {
                     success: false,
-                    error: `ID ${id} not found`
+                    error: `ID ${id} not found in table ${tableName}`
                 };
             }
 
             // participant名（JSON文字列）を取得
             const jsonString = JSON.stringify(getResult.data);
+            debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Found JSON data to delete: ${jsonString.substring(0, 100)}...`);
 
             // Socket-BEのスコアボードAPIは現在限定的なため、コマンドベースアプローチを優先
             if (scoreboard && false) { // 現在は無効化
@@ -468,28 +478,114 @@ class JsonScoreboardDatabase {
             }
 
             // 従来のコマンドベース方式（フォールバック）
-            const escapedJson = jsonString.replace(/"/g, '\\"');
-
-            // participantを削除
-            const command = `scoreboard players reset "${escapedJson}" ${tableName}`;
-            const result = await world.runCommand(command);
-
-            // successCountがundefinedでもエラーメッセージがなければ成功とみなす
-            const isSuccess = result.successCount !== 0 ||
-                !result.statusMessage?.includes('エラー');
-
-            if (!isSuccess && result.successCount === 0) {
-                return {
-                    success: false,
-                    error: `Delete command failed: ${result.statusMessage || 'Unknown error'}`
-                };
+            
+            // 複数の削除アプローチを試す
+            let deleteSuccess = false;
+            let lastError = "";
+            
+            // アプローチ1: エスケープありの削除
+            try {
+                const escapedJson = jsonString;
+                const command1 = `scoreboard players reset "${escapedJson}" ${tableName}`;
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Executing delete command (approach 1): ${command1.substring(0, 100)}...`);
+                const result1 = await world.runCommand(command1);
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Delete command result (approach 1) - success: ${result1.successCount}, message: ${result1.statusMessage}`);
+                
+                if (result1.successCount > 0 || (result1.statusMessage && !result1.statusMessage.includes('エラー'))) {
+                    deleteSuccess = true;
+                }
+            } catch (error1) {
+                lastError = String(error1);
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Delete approach 1 failed: ${error1}`);
+            }
+            
+            // アプローチ2: エスケープなしの削除（失敗した場合のみ）
+            if (!deleteSuccess) {
+                try {
+                    const command2 = `scoreboard players reset "${jsonString}" ${tableName}`;
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Executing delete command (approach 2): ${command2.substring(0, 100)}...`);
+                    const result2 = await world.runCommand(command2);
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Delete command result (approach 2) - success: ${result2.successCount}, message: ${result2.statusMessage}`);
+                    
+                    if (result2.successCount > 0 || (result2.statusMessage && !result2.statusMessage.includes('エラー'))) {
+                        deleteSuccess = true;
+                    }
+                } catch (error2) {
+                    lastError = String(error2);
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Delete approach 2 failed: ${error2}`);
+                }
             }
 
-            return {
-                success: true,
-                data: { deletedId: id }
-            };
+            // 初期削除試行の結果確認
+            if (!deleteSuccess) {
+                debugError(`[JsonScoreboardDatabase][${timestamp}] ERROR: All initial delete attempts failed for ID ${id}. Last error: ${lastError}`);
+            }
+            
+            // 削除後にデータが実際に削除されたかを確認
+            debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Verifying deletion of ID ${id} from table ${tableName}`);
+            
+            // 短時間待機してからデータの存在確認
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
+            const verifyResult = await this.getJsonDirect(tableName, id);
+            const isActuallyDeleted = !verifyResult.success;
+            
+            if (isActuallyDeleted) {
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Deletion verified - ID ${id} successfully removed from table ${tableName}`);
+                return {
+                    success: true,
+                    data: { deletedId: id, deletedFromTable: tableName, verified: true }
+                };
+            } else {
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] WARNING: Deletion not verified - ID ${id} still exists in table ${tableName} after delete command`);
+                
+                // 追加の削除試行 - より強力な方法
+                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Attempting forceful delete approach for ID ${id}`);
+                
+                try {
+                    // アプローチ3: 単純化されたコマンド
+                    const simpleCommand = `scoreboard players reset * ${tableName}`;
+                    debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Executing forceful delete command: ${simpleCommand.substring(0, 100)}...`);
+                    await world.runCommand(simpleCommand);
+                    
+                    // 最終確認
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    const finalVerifyResult = await this.getJsonDirect(tableName, id);
+                    const isFinalDeleted = !finalVerifyResult.success;
+                    
+                    if (isFinalDeleted) {
+                        debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Forceful deletion successful for ID ${id} from table ${tableName}`);
+                        return {
+                            success: true,
+                            data: { deletedId: id, deletedFromTable: tableName, verified: true, forcefulMethod: true }
+                        };
+                    } else {
+                        debugError(`[JsonScoreboardDatabase][${timestamp}] ERROR: All deletion methods failed for ID ${id} in table ${tableName}`);
+                        return {
+                            success: false,
+                            error: `Failed to delete ID ${id} from table ${tableName} - data persists after all deletion attempts`,
+                            data: { 
+                                stillExists: finalVerifyResult.data,
+                                originalData: getResult.data,
+                                attemptedMethods: ['escaped', 'unescaped', 'partial']
+                            }
+                        };
+                    }
+                } catch (finalError) {
+                    debugError(`[JsonScoreboardDatabase][${timestamp}] ERROR: Final deletion method failed:`, finalError);
+                    return {
+                        success: false,
+                        error: `Delete verification failed and final method errored: ${String(finalError)}`,
+                        data: { 
+                            stillExists: verifyResult.data,
+                            originalData: getResult.data,
+                            lastError: String(finalError)
+                        }
+                    };
+                }
+            }
         } catch (error) {
+            debugError(`[JsonScoreboardDatabase][${timestamp}] ERROR: deleteJsonDirect error:`, error);
             return {
                 success: false,
                 error: String(error)
@@ -595,29 +691,34 @@ class JsonScoreboardDatabase {
         if (scoreMatch && currentParticipant) {
           const tableNameInLine = scoreMatch[1].trim();
           const score = parseInt(scoreMatch[2]);
-          const tableName = scoreMatch[3].trim();
+          const actualTableName = scoreMatch[3].trim();
 
-          // JSONで始まる participant名のみ処理
-          if (currentParticipant.startsWith('{')) {
-            try {
-              // エスケープされた文字列をアンエスケープ
-              let unescapedParticipant = currentParticipant;
-              
-              // バックスラッシュエスケープを処理
-              if (unescapedParticipant.includes('\\"')) {
-                unescapedParticipant = unescapedParticipant.replace(/\\"/g, '"');
+          // テーブル名の厳格なチェック: 要求されたテーブル名と実際のテーブル名が一致する場合のみ処理
+          if (actualTableName === tableName) {
+            // JSONで始まる participant名のみ処理
+            if (currentParticipant.startsWith('{')) {
+              try {
+                // エスケープされた文字列をアンエスケープ
+                let unescapedParticipant = currentParticipant;
+                
+                // バックスラッシュエスケープを処理
+                if (unescapedParticipant.includes('\\"')) {
+                  unescapedParticipant = unescapedParticipant.replace(/\\"/g, '"');
+                }
+                
+                const jsonData = JSON.parse(unescapedParticipant);
+                items.push({
+                  id: score,
+                  data: jsonData
+                });
+                debugLog(`[JsonScoreboardDatabase] DEBUG: Added item with ID ${score} from new format (table: ${actualTableName})`);
+              } catch (parseError) {
+                console.warn(`[JsonScoreboardDatabase] Failed to parse JSON for ID ${score} (new format, table: ${actualTableName}): ${parseError}`);
+                continue;
               }
-              
-              const jsonData = JSON.parse(unescapedParticipant);
-              items.push({
-                id: score,
-                data: jsonData
-              });
-              debugLog(`[JsonScoreboardDatabase] DEBUG: Added item with ID ${score} from new format`);
-            } catch (parseError) {
-              console.warn(`[JsonScoreboardDatabase] Failed to parse JSON for ID ${score} (new format): ${parseError}`);
-              continue;
             }
+          } else {
+            debugLog(`[JsonScoreboardDatabase] DEBUG: Skipping entry from different table: ${actualTableName} (looking for ${tableName})`);
           }
           continue;
         }
