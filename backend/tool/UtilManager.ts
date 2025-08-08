@@ -4,6 +4,7 @@ import { DateUtil } from './DateUtil.js';
 import { LogUtil } from './LogUtil.js';
 import { TimeUtil } from './TimeUtil.js';
 import { WorldUtil } from './WorldUtil.js';
+import { WorldChecker } from './WorldChecker.js';
 
 /**
  * Utilityシステムのメイン管理クラス
@@ -16,6 +17,7 @@ export class UtilManager {
   public readonly log: LogUtil;
   public readonly time: TimeUtil;
   public readonly world: WorldUtil;
+  public readonly worldChecker: WorldChecker;
 
   // シングルトンインスタンス
   private static instance: UtilManager | null = null;
@@ -30,6 +32,7 @@ export class UtilManager {
     this.log = new LogUtil();
     this.time = new TimeUtil();
     this.world = new WorldUtil();
+    this.worldChecker = WorldChecker.getInstance();
   }
 
   /**
@@ -112,7 +115,7 @@ export class UtilManager {
   } {
     return {
       initialized: true,
-      availableUtils: ['string', 'date', 'file', 'log', 'time', 'world'],
+      availableUtils: ['string', 'date', 'file', 'log', 'time', 'world', 'worldChecker'],
       version: '1.0.0'
     };
   }

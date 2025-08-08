@@ -1,4 +1,5 @@
 import { bridge, CommunicationData } from './Bridge';
+import { utils } from '../../index.js';
 
 /**
  * player_break_block イベント専用ハンドラ
@@ -15,66 +16,56 @@ const debugLog = (message: string) => {
 };
 
 /**
- * BlockBreakEventData型定義
+ * コンパクトなBlockBreakEventData型定義
  */
-interface BlockBreakEventData {
-    eventType: 'player_break_block';
-    player: {
+interface CompactBlockBreakEventData {
+    type: 'break';
+    p: {
         id: string;
-        name: string;
-        location: {
-            x: number;
-            y: number;
-            z: number;
-        };
+        n: string;
+        x: number;
+        y: number;
+        z: number;
     };
-    block: {
-        typeId: string;
-        location: {
-            x: number;
-            y: number;
-            z: number;
-        };
-        permutation?: any;
+    b: {
+        t: string;
+        x: number;
+        y: number;
+        z: number;
     };
-    tool?: {
-        typeId: string;
-        amount: number;
-    };
-    timestamp: number;
-    gameMode?: string;
-    dimension?: string;
+    tool?: string;
+    ts: number;
+    dim?: string;
 }
 
 /**
- * player_break_blockイベントを処理してコンソールログに出力
+ * player_break_blockイベントを処理してコンソールログに出力（コンパクト版）
  */
-function handlePlayerBreakBlock(eventData: BlockBreakEventData): void {
-    debugLog('=== Player Break Block Event ===');
-    console.log(`🔨 [BLOCK_BREAK] ${eventData.player.name} (${eventData.player.id}) broke a block`);
-    console.log(`   📦 Block: ${eventData.block.typeId}`);
-    console.log(`   📍 Block Position: X=${eventData.block.location.x}, Y=${eventData.block.location.y}, Z=${eventData.block.location.z}`);
-    console.log(`   🧍 Player Position: X=${eventData.player.location.x}, Y=${eventData.player.location.y}, Z=${eventData.player.location.z}`);
+function handlePlayerBreakBlock(eventData: CompactBlockBreakEventData): void {
+    // ワールドが利用可能かチェック
+    if (!utils?.world?.hasWorlds()) {
+        debugLog('Event handling skipped: No worlds available');
+        console.warn('⚠️ [Event] ワールドが利用可能でないため、イベント処理をスキップしました');
+        return;
+    }
+
+    debugLog('=== Compact Player Break Block Event ===');
+    console.log(`🔨 [BLOCK_BREAK] ${eventData.p.n} (${eventData.p.id}) broke a block`);
+    console.log(`   📦 Block: ${eventData.b.t}`);
+    console.log(`   📍 Block Position: X=${eventData.b.x}, Y=${eventData.b.y}, Z=${eventData.b.z}`);
+    console.log(`   🧍 Player Position: X=${eventData.p.x}, Y=${eventData.p.y}, Z=${eventData.p.z}`);
     
     if (eventData.tool) {
-        console.log(`   🔧 Tool: ${eventData.tool.typeId} (Amount: ${eventData.tool.amount})`);
+        console.log(`   🔧 Tool: ${eventData.tool}`);
     } else {
         console.log(`   ✋ Tool: Hand/None`);
     }
     
-    if (eventData.gameMode) {
-        console.log(`   🎮 Game Mode: ${eventData.gameMode}`);
+    if (eventData.dim) {
+        console.log(`   🌍 Dimension: ${eventData.dim}`);
     }
     
-    if (eventData.dimension) {
-        console.log(`   🌍 Dimension: ${eventData.dimension}`);
-    }
-    
-    if (eventData.block.permutation) {
-        console.log(`   🔍 Block Permutation: ${JSON.stringify(eventData.block.permutation)}`);
-    }
-    
-    console.log(`   ⏰ Time: ${new Date(eventData.timestamp).toLocaleString()}`);
+    console.log(`   ⏰ Time: ${new Date(eventData.ts).toLocaleString()}`);
     console.log('================================');
 }
 
@@ -83,12 +74,19 @@ function handlePlayerBreakBlock(eventData: BlockBreakEventData): void {
  */
 function processEventData(data: CommunicationData): void {
     try {
+        // ワールドが利用可能かチェック
+        if (!utils?.world?.hasWorlds()) {
+            debugLog('Event processing skipped: No worlds available');
+            console.warn('⚠️ [Event] ワールドが利用可能でないため、イベント処理をスキップしました');
+            return;
+        }
+
         debugLog(`Received data with ID: ${data.id}`);
         
-        // player_break_blockイベントかどうかチェック
-        if (data.data && typeof data.data === 'object' && data.data.eventType === 'player_break_block') {
-            const eventData = data.data as BlockBreakEventData;
-            debugLog(`Processing player_break_block event`);
+        // コンパクトなplayer_break_blockイベントかどうかチェック
+        if (data.data && typeof data.data === 'object' && data.data.type === 'break') {
+            const eventData = data.data as CompactBlockBreakEventData;
+            debugLog(`Processing compact player_break_block event`);
             
             handlePlayerBreakBlock(eventData);
         }
@@ -102,20 +100,43 @@ function processEventData(data: CommunicationData): void {
  * イベントリスナーを初期化
  */
 export function initializeEventListener(): void {
-    debugLog('Initializing player_break_block event listener...');
+    debugLog('Initializing compact player_break_block event listener...');
     
+    // ワールドが利用可能かチェック
+    if (!utils?.world?.hasWorlds()) {
+        debugLog('Event listener initialization delayed: No worlds available');
+        console.warn('⚠️ [Event] ワールドが利用可能でないため、イベントリスナー初期化を延期します');
+        
+        // ワールドが追加されるまで待機してから初期化
+        if (utils?.world) {
+            utils.world.onWorldAdd(() => {
+                debugLog('World detected, initializing event listener...');
+                console.log('✅ [Event] ワールドが検出されました。イベントリスナーを初期化します');
+                initializeEventListenerInternal();
+            });
+        }
+        return;
+    }
+
+    initializeEventListenerInternal();
+}
+
+/**
+ * 内部的なイベントリスナー初期化処理
+ */
+function initializeEventListenerInternal(): void {
     // Data Bridgeにイベントハンドラを登録
     bridge.onReceive(async (data: CommunicationData) => {
         processEventData(data);
         
-        // player_break_blockイベントの場合はACKレスポンスを返す
-        if (data.data && data.data.eventType === 'player_break_block') {
+        // コンパクトなplayer_break_blockイベントの場合はACKレスポンスを返す
+        if (data.data && data.data.type === 'break') {
             return {
                 id: `ack_${data.id}`,
                 timestamp: Date.now(),
                 data: {
                     type: 'event_acknowledged',
-                    originalEventType: 'player_break_block',
+                    originalEventType: 'break',
                     originalId: data.id,
                     processed: true
                 }
@@ -124,76 +145,93 @@ export function initializeEventListener(): void {
     });
     
     debugLog('Event listener initialized successfully');
-    console.log('🎮 [EVENT_SYSTEM] player_break_block event listener is ready');
-    console.log('   📡 Listening for player_break_block events only');
+    console.log('🎮 [EVENT_SYSTEM] Compact player_break_block event listener is ready');
+    console.log('   📡 Listening for compact break events only');
     console.log('   🔗 Using Data Bridge for communication');
+    console.log('   🌍 World-aware event processing enabled');
 }
 
 /**
- * テスト用のサンプルイベント送信
+ * テスト用のサンプルイベント送信（コンパクト版）
  */
-export async function sendTestEvent(): Promise<void> {
-    debugLog('Sending test player_break_block event...');
+async function sendTestEvent(): Promise<void> {
+    // ワールドが利用可能かチェック
+    if (!utils?.world?.hasWorlds()) {
+        console.warn('⚠️ [Test] ワールドが利用可能でないため、テストイベント送信をスキップしました');
+        return;
+    }
+
+    debugLog('Sending test compact player_break_block event...');
     
-    const testEvent: BlockBreakEventData = {
-        eventType: 'player_break_block',
-        player: {
+    const testEvent: CompactBlockBreakEventData = {
+        type: 'break',
+        p: {
             id: 'test_player_123',
-            name: 'TestPlayer',
-            location: {
-                x: 100,
-                y: 65,
-                z: 200
-            }
+            n: 'TestPlayer',
+            x: 100,
+            y: 65,
+            z: 200
         },
-        block: {
-            typeId: 'minecraft:stone',
-            location: {
-                x: 100,
-                y: 64,
-                z: 200
-            }
+        b: {
+            t: 'minecraft:stone',
+            x: 100,
+            y: 64,
+            z: 200
         },
-        tool: {
-            typeId: 'minecraft:diamond_pickaxe',
-            amount: 1
-        },
-        timestamp: Date.now(),
-        gameMode: 'survival',
-        dimension: 'overworld'
+        tool: 'minecraft:diamond_pickaxe',
+        ts: Date.now(),
+        dim: 'overworld'
     };
     
-    const success = await bridge.send(testEvent, 'test_break_block_event');
+    const success = await bridge.send(testEvent, 'test_compact_break_event');
     
     if (success) {
         debugLog('Test event sent successfully');
-        console.log('✅ [TEST] Test player_break_block event sent');
+        console.log('✅ [TEST] Test compact player_break_block event sent');
     } else {
         console.error('❌ [TEST] Failed to send test event');
     }
 }
 
 /**
- * 統計情報表示
+ * 統計情報表示（ワールド状況を含む）
  */
-export async function showEventStats(): Promise<void> {
+async function showEventStats(): Promise<void> {
     try {
+        // ワールド状況をチェック
+        const worldStatus = utils?.world?.getStatus();
+        console.log('📊 [EVENT_STATS] Compact player_break_block Event Statistics');
+        console.log(`   🌍 World Status: ${worldStatus?.hasWorlds ? 'Available' : 'Not Available'} (${worldStatus?.worldCount || 0} worlds)`);
+        
+        if (!utils?.world?.hasWorlds()) {
+            console.log('   ⚠️ Warning: No worlds available - events cannot be processed');
+            return;
+        }
+
         const outboxData = await bridge.getOutboxData();
         const inboxData = await bridge.getInboxData();
+        const processStats = bridge.getStats();
         
-        console.log('📊 [EVENT_STATS] player_break_block Event Statistics');
         console.log(`   📤 Sent events: ${outboxData.length}`);
         console.log(`   📥 Received events: ${inboxData.length}`);
+        console.log(`   🔄 Processed IDs tracked: ${processStats.processedIdsCount}/${processStats.maxProcessedIds}`);
+        console.log(`   🎧 Listening: ${processStats.isListening ? 'Active' : 'Inactive'}`);
+        console.log(`   🧹 Auto-cleanup interval: ${processStats.cleanupInterval}ms`);
+        
+        // 未処理データがあるかチェック
+        if (inboxData.length > 0) {
+            console.log(`   ⚠️ Warning: ${inboxData.length} unprocessed events in inbox`);
+        }
         
         // 最新のイベントを表示
         if (inboxData.length > 0) {
             const latestEvent = inboxData[inboxData.length - 1];
             console.log(`   🕐 Latest received: ${new Date(latestEvent.timestamp).toLocaleString()}`);
             
-            if (latestEvent.data.eventType === 'player_break_block') {
-                console.log(`   📋 Event type: player_break_block`);
-                console.log(`   👤 Player: ${latestEvent.data.player?.name || 'Unknown'}`);
-                console.log(`   📦 Block: ${latestEvent.data.block?.typeId || 'Unknown'}`);
+            if (latestEvent.data.type === 'break') {
+                console.log(`   📋 Event type: compact break`);
+                console.log(`   👤 Player: ${latestEvent.data.p?.n || 'Unknown'}`);
+                console.log(`   📦 Block: ${latestEvent.data.b?.t || 'Unknown'}`);
             }
         }
         
@@ -202,20 +240,31 @@ export async function showEventStats(): Promise<void> {
             console.log(`   🕐 Latest sent: ${new Date(latestSent.timestamp).toLocaleString()}`);
         }
         
+        // クリーンアップ提案
+        if (inboxData.length > 10 || processStats.processedIdsCount > 500) {
+            console.log('   💡 Tip: Consider running cleanup with /event cleanup');
+        }
+        
     } catch (error) {
         console.error('❌ [EVENT_STATS] Error getting statistics:', error);
     }
 }
 
+
+
+
+
 // 自動初期化
-console.log('� [EVENT_MODULE] player_break_block Event module loaded');
+console.log('🎮 [EVENT_MODULE] Compact player_break_block Event module loaded');
 
 // エクスポート
 export { 
     handlePlayerBreakBlock, 
-    processEventData 
+    processEventData,
+    sendTestEvent,
+    showEventStats
 };
 
 export type { 
-    BlockBreakEventData 
+    CompactBlockBreakEventData
 };

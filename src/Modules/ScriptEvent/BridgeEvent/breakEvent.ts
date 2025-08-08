@@ -2,34 +2,25 @@ import { Event } from '../../Event/Event';
 import { bridge } from '../Bridge';
 import { PlayerBreakBlockBeforeEvent } from '@minecraft/server';
 
-// ブロック破壊イベントのカスタムデータ型
-interface BlockBreakEventData {
-    eventType: 'player_break_block';
-    player: {
+// ブロック破壊イベントのコンパクトなデータ型
+interface CompactBlockBreakEventData {
+    type: 'break';
+    p: {
         id: string;
-        name: string;
-        location: {
-            x: number;
-            y: number;
-            z: number;
-        };
+        n: string;
+        x: number;
+        y: number;
+        z: number;
     };
-    block: {
-        typeId: string;
-        location: {
-            x: number;
-            y: number;
-            z: number;
-        };
-        permutation?: any;
+    b: {
+        t: string;
+        x: number;
+        y: number;
+        z: number;
     };
-    tool?: {
-        typeId: string;
-        amount: number;
-    };
-    timestamp: number;
-    gameMode?: string;
-    dimension?: string;
+    tool?: string;
+    ts: number;
+    dim?: string;
 }
 
 // デバッグフラグ
@@ -109,70 +100,46 @@ class BlockBreakEventHandler {
         try {
             debugLog(`Processing block break event for player: ${event.player.name}`);
 
-            // カスタムイベントデータを構築
-            const customEventData: BlockBreakEventData = {
-                eventType: 'player_break_block',
-                player: {
-                    id: event.player.id,
-                    name: event.player.name,
-                    location: {
-                        x: Math.floor(event.player.location.x),
-                        y: Math.floor(event.player.location.y),
-                        z: Math.floor(event.player.location.z)
-                    }
+            // コンパクトなイベントデータを構築（文字数制限対応）
+            const compactEventData: CompactBlockBreakEventData = {
+                type: 'break',
+                p: {
+                    id: event.player.id.substring(0, 10), // IDを短縮
+                    n: event.player.name.substring(0, 16), // 名前を制限
+                    x: Math.floor(event.player.location.x),
+                    y: Math.floor(event.player.location.y),
+                    z: Math.floor(event.player.location.z)
                 },
-                block: {
-                    typeId: event.block.typeId,
-                    location: {
-                        x: event.block.location.x,
-                        y: event.block.location.y,
-                        z: event.block.location.z
-                    }
+                b: {
+                    t: event.block.typeId.replace('minecraft:', ''), // 名前空間を削除
+                    x: event.block.location.x,
+                    y: event.block.location.y,
+                    z: event.block.location.z
                 },
-                timestamp: Date.now(),
-                dimension: event.player.dimension.id
+                ts: Date.now(),
+                dim: event.player.dimension.id.replace('minecraft:', '') // 名前空間を削除
             };
 
-            // プレイヤーが持っているツールの情報を取得
+            // プレイヤーが持っているツールの情報を取得（コンパクト）
             try {
                 const inventory = event.player.getComponent('inventory');
                 if (inventory && inventory.container) {
                     const selectedItem = inventory.container.getItem(event.player.selectedSlotIndex);
                     if (selectedItem) {
-                        customEventData.tool = {
-                            typeId: selectedItem.typeId,
-                            amount: selectedItem.amount
-                        };
+                        compactEventData.tool = selectedItem.typeId.replace('minecraft:', '');
                     }
                 }
             } catch (toolError) {
                 debugError('Error getting tool information:', toolError);
             }
 
-            // ゲームモードの取得（可能な場合）
-            try {
-                // Note: ゲームモードの取得方法は環境によって異なる場合があります
-                customEventData.gameMode = 'unknown'; // 実際の実装では適切な方法で取得
-            } catch (gameModeError) {
-                debugError('Error getting game mode:', gameModeError);
-            }
-
-            // ブロック詳細情報の取得
-            try {
-                if (event.block.permutation) {
-                    customEventData.block.permutation = {
-                        type: event.block.permutation.type.id,
-                        // 他の permutation データも必要に応じて追加
-                    };
-                }
-            } catch (permError) {
-                debugError('Error getting block permutation:', permError);
-            }
-
-            debugLog(`Sending block break data: ${JSON.stringify(customEventData, null, 2)}`);
+            // データサイズを確認
+            const dataString = JSON.stringify(compactEventData);
+            debugLog(`Compact event data size: ${dataString.length} chars`);
+            debugLog(`Sending compact break data: ${dataString}`);
 
             // Bridgeを通してWebSocketに送信
-            const success = await bridge.send(customEventData, `break_${event.player.id}_${Date.now()}`);
+            const success = await bridge.send(compactEventData, `brk_${event.player.id.substring(0, 5)}_${Date.now()}`);
             
             if (success) {
                 debugLog(`Successfully sent block break event for player: ${event.player.name}`);
@@ -197,19 +164,50 @@ class BlockBreakEventHandler {
 const blockBreakEventHandler = BlockBreakEventHandler.getInstance();
 
 // 便利な関数エクスポート
-const breakEventBridge = {
+export const breakEventBridge = {
     // イベントリスナー制御
     start: () => blockBreakEventHandler.start(),
     stop: () => blockBreakEventHandler.stop(),
     isActive: () => blockBreakEventHandler.isListenerActive(),
+    
+    // 手動でテストイベントを送信（テスト用）
+    sendTestEvent: async (playerName: string = 'TestPlayer') => {
+        const testData: CompactBlockBreakEventData = {
+            type: 'break',
+            p: {
+                id: 'test-123',
+                n: playerName.substring(0, 16),
+                x: 100,
+                y: 64,
+                z: 200
+            },
+            b: {
+                t: 'stone',
+                x: 100,
+                y: 63,
+                z: 200
+            },
+            ts: Date.now(),
+            dim: 'overworld',
+            tool: 'diamond_pickaxe'
+        };
+        
+        return await bridge.send(testData, `test_brk_${Date.now()}`);
+    }
 };
 
-breakEventBridge.start();
+// 型エクスポート
+export type { CompactBlockBreakEventData };
 
-export type { BlockBreakEventData };
+// クラスエクスポート
 export { BlockBreakEventHandler };
+
+// デフォルトエクスポート
 export default blockBreakEventHandler;
 
 debugLog('BreakEvent Bridge initialized');
 debugLog('Ready to capture and forward player block break events');
+
+// 自動開始
+breakEventBridge.start();
 

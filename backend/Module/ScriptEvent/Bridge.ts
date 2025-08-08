@@ -38,6 +38,9 @@ class DataBridge {
     private pollingInterval: number = 1000; // 1秒間隔でポーリング
     private pollingTimer?: NodeJS.Timeout;
     private lastProcessedIds: Set<string> = new Set(); // 処理済みデータID
+    private cleanupInterval: number = 60000; // 1分間隔でクリーンアップ
+    private cleanupTimer?: NodeJS.Timeout;
+    private maxProcessedIds: number = 1000; // 処理済みID保持上限
 
     // テーブル名の定数
     private readonly OUTBOX_TABLE = 'data_bridge_outbox';    // Backend → Client
@@ -145,7 +148,13 @@ class DataBridge {
             this.pollForData();
         }, this.pollingInterval);
 
+        // クリーンアップタイマーも開始
+        this.cleanupTimer = setInterval(() => {
+            this.performAutomaticCleanup();
+        }, this.cleanupInterval);
+
         debugLog(`Data listener started with ${this.pollingInterval}ms interval`);
+        debugLog(`Cleanup timer started with ${this.cleanupInterval}ms interval`);
     }
 
     /**
@@ -165,7 +174,12 @@ class DataBridge {
             this.pollingTimer = undefined;
         }
 
-        debugLog('Data listener stopped');
+        if (this.cleanupTimer) {
+            clearInterval(this.cleanupTimer);
+            this.cleanupTimer = undefined;
+        }
+
+        debugLog('Data listener and cleanup timer stopped');
     }
 
     /**
@@ -224,14 +238,75 @@ class DataBridge {
             const cutoffTime = Date.now() - olderThanMs;
             debugLog(`Cleaning up data older than ${new Date(cutoffTime).toISOString()}`);
 
-            // 実装簡略化 - 必要に応じて詳細な削除ロジックを追加
-            await jsonDB.clear(this.OUTBOX_TABLE);
-            await jsonDB.clear(this.INBOX_TABLE);
+            let cleanedCount = 0;
+            
+            // Inboxの詳細クリーンアップ
+            const inboxData = await this.getInboxData();
+            for (const data of inboxData) {
+                if (data.timestamp < cutoffTime) {
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    await this.deleteProcessedData(dataKey, data.id);
+                    cleanedCount++;
+                }
+            }
 
-            debugLog('Cleanup completed');
+            // Outboxの詳細クリーンアップ
+            const outboxData = await this.getOutboxData();
+            for (const data of outboxData) {
+                if (data.timestamp < cutoffTime) {
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    const deleteResult = await jsonDB.delete(this.OUTBOX_TABLE, dataKey);
+                    if (deleteResult.success) {
+                        cleanedCount++;
+                    }
+                }
+            }
+
+            debugLog(`Manual cleanup completed: removed ${cleanedCount} old items`);
         } catch (error) {
             debugError('Error during cleanup:', error);
         }
+    }
+
+    /**
+     * 即座に処理済みデータをクリーンアップ
+     */
+    public async cleanupProcessedData(): Promise<void> {
+        try {
+            debugLog('Cleaning up processed data...');
+            
+            const inboxData = await this.getInboxData();
+            let cleanedCount = 0;
+            
+            for (const data of inboxData) {
+                if (this.lastProcessedIds.has(data.id)) {
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    await this.deleteProcessedData(dataKey, data.id);
+                    cleanedCount++;
+                }
+            }
+            
+            debugLog(`Processed data cleanup completed: removed ${cleanedCount} processed items`);
+        } catch (error) {
+            debugError('Error during processed data cleanup:', error);
+        }
+    }
+
+    /**
+     * 処理済みID管理の統計情報を取得
+     */
+    public getProcessingStats(): {
+        processedIdsCount: number;
+        maxProcessedIds: number;
+        isListening: boolean;
+        cleanupInterval: number;
+    } {
+        return {
+            processedIdsCount: this.lastProcessedIds.size,
+            maxProcessedIds: this.maxProcessedIds,
+            isListening: this.isListening,
+            cleanupInterval: this.cleanupInterval
+        };
     }
 
     // プライベートメソッド
@@ -253,7 +328,7 @@ class DataBridge {
             const result = await jsonDB.list(this.INBOX_TABLE);
 
             if (!result.success || !result.data.items) {
-                debugLog('No data found in inbox');
+                //debugLog('No data found in inbox');
                 return;
             }
 
@@ -279,6 +354,8 @@ class DataBridge {
         try {
             // データIDの重複チェック
             if (this.lastProcessedIds.has(data.id)) {
+                debugLog(`Data ${data.id} already processed, deleting duplicate`);
+                await this.deleteProcessedData(dataKey, data.id);
                 return;
             }
 
@@ -298,13 +375,11 @@ class DataBridge {
                 }
             }
 
-            // 処理済みとしてマーク
-            this.lastProcessedIds.add(data.id);
+            // 処理済みとしてマークと削除を同時実行
+            this.markAsProcessed(data.id);
+            await this.deleteProcessedData(dataKey, data.id);
 
-            // データを削除（処理済みなので）
-            await jsonDB.delete(this.INBOX_TABLE, dataKey);
-
-           // debugLog(`Data ${data.id} processed and removed from inbox`);
+            debugLog(`Data ${data.id} processed and removed from inbox`);
 
         } catch (error) {
             debugError(`Error processing data ${data.id}:`, error);
@@ -331,6 +406,71 @@ class DataBridge {
         }
         return Math.abs(hash);
     }
+
+    /**
+     * データを処理済みとしてマーク
+     */
+    private markAsProcessed(dataId: string): void {
+        this.lastProcessedIds.add(dataId);
+        
+        // 処理済みIDが上限を超えた場合、古いものを削除
+        if (this.lastProcessedIds.size > this.maxProcessedIds) {
+            const idsArray = Array.from(this.lastProcessedIds);
+            const toRemove = idsArray.slice(0, idsArray.length - this.maxProcessedIds);
+            for (const id of toRemove) {
+                this.lastProcessedIds.delete(id);
+            }
+            debugLog(`Cleaned up ${toRemove.length} old processed IDs`);
+        }
+    }
+
+    /**
+     * 処理済みデータを削除
+     */
+    private async deleteProcessedData(dataKey: number, dataId: string): Promise<void> {
+        try {
+            const deleteResult = await jsonDB.delete(this.INBOX_TABLE, dataKey);
+            if (deleteResult.success) {
+                debugLog(`Successfully deleted processed data ${dataId} (key: ${dataKey})`);
+            } else {
+                debugError(`Failed to delete processed data ${dataId}:`, deleteResult.error);
+            }
+        } catch (error) {
+            debugError(`Error deleting processed data ${dataId}:`, error);
+        }
+    }
+
+    /**
+     * 自動クリーンアップ実行
+     */
+    private async performAutomaticCleanup(): Promise<void> {
+        try {
+            debugLog('Performing automatic cleanup...');
+            
+            // 古いデータをクリーンアップ（1時間以上古いデータ）
+            const oneHourAgo = Date.now() - (60 * 60 * 1000);
+            
+            // 受信データの確認
+            const inboxData = await this.getInboxData();
+            let cleanedCount = 0;
+            
+            for (const data of inboxData) {
+                if (data.timestamp < oneHourAgo || this.lastProcessedIds.has(data.id)) {
+                    // 古いデータまたは処理済みデータを削除
+                    const dataKey = this.generateDataKey(data.id, data.timestamp);
+                    await this.deleteProcessedData(dataKey, data.id);
+                    cleanedCount++;
+                }
+            }
+            
+            if (cleanedCount > 0) {
+                debugLog(`Automatic cleanup completed: removed ${cleanedCount} old/processed items`);
+            }
+            
+        } catch (error) {
+            debugError('Error during automatic cleanup:', error);
+        }
+    }
 }
 
 // グローバルインスタンス
@@ -353,8 +493,12 @@ export const bridge = {
     getOutboxData: () => dataBridge.getOutboxData(),
     getInboxData: () => dataBridge.getInboxData(),
 
-    // メンテナンス
-    cleanup: (olderThanMs?: number) => dataBridge.cleanupOldData(olderThanMs)
+    // クリーンアップ
+    cleanup: (olderThanMs?: number) => dataBridge.cleanupOldData(olderThanMs),
+    cleanupProcessed: () => dataBridge.cleanupProcessedData(),
+    
+    // 統計情報
+    getStats: () => dataBridge.getProcessingStats()
 };
 
 // 型エクスポート
