@@ -196,7 +196,6 @@ function createModalForm(player: Player, title: string, elements: FormElement[],
         retryCount++;
         
         if (retryCount >= maxRetries) {
-          player.sendMessage(`§c[フォーム] ${formId}: 最大再試行回数に達しました。後でもう一度お試しください。`);
           return;
         }
         
