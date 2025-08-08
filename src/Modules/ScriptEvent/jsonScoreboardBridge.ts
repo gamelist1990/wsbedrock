@@ -4,6 +4,7 @@ import {
   world, 
   ScoreboardObjective,
   Player} from "@minecraft/server";
+import { registerScriptEvent } from "./register";
 
 // JSONデータベース操作の種類
 enum JsonDatabaseOperation {
@@ -1009,6 +1010,43 @@ system.afterEvents.scriptEventReceive.subscribe((ev: ScriptEventCommandMessageAf
     }
   }
 });
+
+
+registerScriptEvent({
+  name: "jsondb",
+  description: "jsondb set <table> <id> <json> でスコアボードJSON操作",
+  parent: false,
+  maxArgs: -1,
+  minArgs: 1,
+  require: 0,
+  executor: (ctx) => {
+    const [subcmd, ...rest] = ctx.args;
+    if (!subcmd) {
+      ctx.player?.sendMessage("§cjsondbコマンド: set <table> <id> <json> 形式で指定してください");
+      return;
+    }
+    if (subcmd === "set") {
+      if (rest.length < 3) {
+        ctx.player?.sendMessage("§cjsondb set <table> <id> <json> 形式で指定してください");
+        return;
+      }
+      const table = rest[0];
+      const id = parseInt(rest[1]);
+      const jsonStr = rest.slice(2).join(" ");
+      let json;
+      try {
+        json = JSON.parse(jsonStr);
+      } catch (e) {
+        ctx.player?.sendMessage("§cJSONパースエラー: " + String(e));
+        return;
+      }
+      jsonDB.set(table, id, json);
+    } else {
+      ctx.player?.sendMessage("§c未対応のjsondbサブコマンド: " + subcmd);
+    }
+  }
+});
+
 
 // エクスポート
 export { jsonScoreboardDB, jsonDB, JsonDatabaseOperation };

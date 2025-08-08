@@ -8,11 +8,19 @@ interface CommunicationData {
     data: any;              // 実際のデータ（任意の形式）
 }
 
-// データハンドラの型定義
-type DataHandler = (data: CommunicationData) => Promise<CommunicationData | void>;
+// レスポンス用の型定義
+export interface BridgeResponse {
+    id: string;
+    timestamp: number;
+    type: string;
+    jsonData?: any;
+}
+
+// データハンドラの型定義（BridgeResponseまたはvoidを返す）
+type DataHandler = (data: CommunicationData) => Promise<BridgeResponse | void>;
 
 // デバッグフラグ
-const DEBUG_BRIDGE = true;
+const DEBUG_BRIDGE = false;
 
 // デバッグ用ヘルパー
 const debugLog = (message: string) => {
@@ -283,7 +291,6 @@ class DataBridge {
         }
         this.isProcessingData = true;
         try {
-            debugLog('[CLIENT] Polling for incoming data from OUTBOX...');
             const result = await jsonDB.list(this.OUTBOX_TABLE);
             if (!result.success) {
                 debugError(`[CLIENT] Failed to list OUTBOX data:`, result.error);
@@ -293,12 +300,10 @@ class DataBridge {
                 debugLog('[CLIENT] No data found in OUTBOX');
                 return;
             }
-            debugLog(`[CLIENT] Found ${result.data.items.length} total items in OUTBOX`);
             const dataItems = result.data.items
                 .map((item: any) => ({ key: item.id, data: item.data as CommunicationData }))
                 .filter(({ data }) => data && data.id && !this.lastProcessedIds.has(data.id))
                 .sort((a, b) => a.data.timestamp - b.data.timestamp);
-            debugLog(`[CLIENT] Found ${dataItems.length} new unprocessed data items in OUTBOX`);
             for (const { key, data } of dataItems) {
                 try {
                     await this.processIncomingData(data);
@@ -350,8 +355,26 @@ class DataBridge {
         for (const handler of this.dataHandlers) {
             try {
                 const response = await handler(data);
-                if (response) {
-                    await this.send(response.data, response.id);
+                // BridgeResponse型かつ必須プロパティが揃っているかチェック
+                if (response && typeof response === 'object' && typeof response.id === 'string' && typeof response.timestamp === 'number' && typeof response.type === 'string') {
+                    // INBOXに送信するデータを構築
+                    const inboxData = {
+                        id: response.id,
+                        timestamp: response.timestamp,
+                        type: response.type,
+                        data: response.jsonData !== undefined ? response.jsonData : null
+                    };
+                    // 送信前にJSON化できるか検証
+                    try {
+                        JSON.stringify(inboxData);
+                        debugLog(`[INBOX] Sending response to INBOX: ${JSON.stringify(inboxData)}`);
+                        await this.send(inboxData, response.id);
+                    } catch (jsonErr) {
+                        debugError(`[INBOX] Handler response could not be stringified, skipping INBOX send:`, jsonErr);
+                        debugError(`[INBOX] Problematic response:`, response);
+                    }
+                } else if (response) {
+                    debugError(`[INBOX] Handler returned invalid response, skipping INBOX send:`, response);
                 }
             } catch (handlerError) {
                 debugError(`[CLIENT] Error in data handler:`, handlerError);

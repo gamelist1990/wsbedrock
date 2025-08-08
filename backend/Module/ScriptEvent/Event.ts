@@ -107,8 +107,6 @@ export function initializeEventListener(): void {
         // ワールドが追加されるまで待機してから初期化
         if (utils?.world) {
             utils.world.onWorldAdd(() => {
-                debugLog('World detected, initializing event listener...');
-                console.log('✅ [Event] ワールドが検出されました。イベントリスナーを初期化します');
                 initializeEventListenerInternal();
             });
         }
@@ -140,12 +138,6 @@ function initializeEventListenerInternal(): void {
             };
         }
     });
-    
-    debugLog('Event listener initialized successfully');
-    console.log('🎮 [EVENT_SYSTEM] Compact player_break_block event listener is ready');
-    console.log('   📡 Listening for compact break events only');
-    console.log('   🔗 Using Data Bridge for communication');
-    console.log('   🌍 World-aware event processing enabled');
 }
 
 

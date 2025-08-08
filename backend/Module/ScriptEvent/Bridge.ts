@@ -21,7 +21,7 @@ interface BridgeResponse {
 type DataHandler = (data: CommunicationData) => Promise<BridgeResponse | void>;
 
 // デバッグフラグ
-const DEBUG_BRIDGE = true;
+const DEBUG_BRIDGE = false;
 
 // デバッグ用ヘルパー
 const debugLog = (message: string) => {
@@ -136,7 +136,6 @@ class DataBridge {
             if (utils?.world) {
                 utils.world.onWorldAdd(() => {
                     debugLog('World detected, starting listening...');
-                    console.log('✅ [DataBridge] ワールドが検出されました。リスニングを開始します');
                     this.startListeningInternal();
                 });
             }
@@ -258,7 +257,7 @@ class DataBridge {
             debugLog(`Cleaning up INBOX data older than ${new Date(cutoffTime).toISOString()}`);
 
             let cleanedCount = 0;
-            
+
             // Inboxの詳細クリーンアップ（INBOXのみ、OUTBOXは触らない）
             const inboxData = await this.getInboxData();
             for (const data of inboxData) {
@@ -291,10 +290,10 @@ class DataBridge {
     public async cleanupProcessedData(): Promise<void> {
         try {
             debugLog('Cleaning up processed INBOX data...');
-            
+
             const inboxData = await this.getInboxData();
             let cleanedCount = 0;
-            
+
             for (const data of inboxData) {
                 // データIDの検証
                 if (!data || !data.id || data.id === 'undefined' || typeof data.id !== 'string') {
@@ -311,7 +310,7 @@ class DataBridge {
                     cleanedCount++;
                 }
             }
-            
+
             debugLog(`Processed INBOX data cleanup completed: removed ${cleanedCount} processed/invalid items`);
         } catch (error) {
             debugError('Error during processed INBOX data cleanup:', error);
@@ -324,26 +323,26 @@ class DataBridge {
     public async forceCleanupAll(): Promise<void> {
         try {
             debugLog('Performing force cleanup of all INBOX data...');
-            
+
             const inboxData = await this.getInboxData();
             let cleanedCount = 0;
-            
+
             // すべてのInboxデータを削除
             for (const data of inboxData) {
                 const dataKey = this.generateDataKey(data?.id || 'invalid', data?.timestamp || Date.now());
                 await this.deleteInvalidData(dataKey);
                 cleanedCount++;
             }
-            
+
             // OUTBOXはクライアント側が管理するため削除しない
-            
+
             // 処理済みIDセットを完全にリセット
             const oldProcessedCount = this.lastProcessedIds.size;
             this.lastProcessedIds.clear();
-            
+
             debugLog(`Force INBOX cleanup completed: removed ${cleanedCount} INBOX items, cleared ${oldProcessedCount} processed IDs (OUTBOX left for client)`);
             console.log(`🧹 [DataBridge] Force INBOX cleanup completed: ${cleanedCount} INBOX items removed, ${oldProcessedCount} processed IDs cleared`);
-            
+
         } catch (error) {
             debugError('Error during force INBOX cleanup:', error);
         }
@@ -404,8 +403,8 @@ class DataBridge {
 
                 // 取得したデータの検証を強化
                 const dataItems = result.data.items
-                    .map((item: any) => ({ 
-                        key: item.id, 
+                    .map((item: any) => ({
+                        key: item.id,
                         data: item.data as CommunicationData,
                         tableSource: this.INBOX_TABLE
                     }))
@@ -414,17 +413,17 @@ class DataBridge {
                         if (this.deletedKeys.has(key)) {
                             return false;
                         }
-                        
+
                         // 無効なデータをフィルタリング
                         if (!data || typeof data !== 'object') {
                             return false;
                         }
-                        
+
                         // INBOXテーブルのデータであることを再確認
                         if (tableSource !== this.INBOX_TABLE) {
                             return false;
                         }
-                        
+
                         return true;
                     })
                     .sort((a, b) => (a.data.timestamp || 0) - (b.data.timestamp || 0));
@@ -434,14 +433,14 @@ class DataBridge {
                     debugLog(`[INBOX] Found ${dataItems.length} unprocessed data items in INBOX table`);
 
                     // データを処理キューに追加（既存のキューと重複しないよう確認）
-                    const newData = dataItems.filter(({ data }) => 
+                    const newData = dataItems.filter(({ data }) =>
                         !this.processingQueue.some(queued => queued.id === data.id)
                     );
 
                     if (newData.length > 0) {
                         // キューに追加
                         this.processingQueue.push(...newData.map(item => ({ ...item.data, _key: item.key })));
-                        
+
                         // キューを順次処理
                         await this.processDataQueue();
                     }
@@ -469,7 +468,7 @@ class DataBridge {
             delete (data as any)._key;
 
             await this.processIncomingData(data, dataKey);
-            
+
             // 処理間隔を設ける（削除処理の完了を待つ）
             await new Promise(resolve => setTimeout(resolve, 100));
         }
@@ -528,7 +527,6 @@ class DataBridge {
                             };
                             // 送信前にJSON化できるか検証
                             try {
-                                JSON.stringify(outboxData);
                                 debugLog(`[OUTBOX] Sending response to OUTBOX: ${JSON.stringify(outboxData)}`);
                                 await this.send(outboxData, response.id);
                             } catch (jsonErr) {
@@ -602,7 +600,7 @@ class DataBridge {
         }
 
         this.lastProcessedIds.add(dataId);
-        
+
         // 処理済みIDが上限を超えた場合、古いものを削除
         if (this.lastProcessedIds.size > this.maxProcessedIds) {
             const idsArray = Array.from(this.lastProcessedIds);
@@ -625,7 +623,7 @@ class DataBridge {
 
         const maxRetries = 3;
         let retryCount = 0;
-        
+
         while (retryCount < maxRetries) {
             try {
                 // クリーンアップ処理中は待機
@@ -635,21 +633,21 @@ class DataBridge {
 
                 debugLog(`[INBOX] Deleting invalid data from ${this.INBOX_TABLE} (key: ${dataKey}) - attempt ${retryCount + 1}/${maxRetries}`);
                 const deleteResult = await jsonDB.delete(this.INBOX_TABLE, dataKey);
-                
-                if (deleteResult.success || 
+
+                if (deleteResult.success ||
                     (deleteResult.data && deleteResult.data.verified === true) ||
                     deleteResult.error?.toString().includes('not found')) {
-                    
+
                     // 削除成功または既に存在しない場合
                     debugLog(`[INBOX] Successfully deleted invalid data from ${this.INBOX_TABLE} (key: ${dataKey})${deleteResult.data?.verified ? ' (verified)' : ''}`);
-                    
+
                     // 削除済みキーを追跡
                     this.deletedKeys.add(dataKey);
                     this.maintainDeletedKeysSize();
                     return;
                 } else {
                     debugLog(`[INBOX] Delete attempt ${retryCount + 1} failed for key ${dataKey}: ${deleteResult.error || 'Unknown error'}`);
-                    
+
                     if (retryCount === maxRetries - 1) {
                         debugError(`[INBOX] Failed to delete invalid data from ${this.INBOX_TABLE} (key: ${dataKey}) after all attempts:`, deleteResult.error);
                     }
@@ -659,14 +657,14 @@ class DataBridge {
                     debugError(`[INBOX] Error deleting invalid data from ${this.INBOX_TABLE} (key: ${dataKey}) after all attempts:`, error);
                 }
             }
-            
+
             retryCount++;
             if (retryCount < maxRetries) {
                 // 次の試行前に短時間待機（指数バックオフ）
                 await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount)));
             }
         }
-        
+
         // 最終的に削除に失敗した場合でも追跡キーに追加（無限ループを防ぐ）
         this.deletedKeys.add(dataKey);
     }
@@ -690,7 +688,7 @@ class DataBridge {
 
             const maxRetries = 3;
             let retryCount = 0;
-            
+
             while (retryCount < maxRetries) {
                 try {
                     // クリーンアップ処理中は待機
@@ -700,27 +698,27 @@ class DataBridge {
 
                     debugLog(`[INBOX] Attempting to delete processed data from table: ${this.INBOX_TABLE}, ID: ${dataId} (key: ${dataKey}) - attempt ${retryCount + 1}/${maxRetries}`);
                     const deleteResult = await jsonDB.delete(this.INBOX_TABLE, dataKey);
-                    
-                    if (deleteResult.success || 
+
+                    if (deleteResult.success ||
                         (deleteResult.data && deleteResult.data.verified === true) ||
                         deleteResult.error?.toString().includes('not found')) {
-                        
+
                         // 削除成功、検証済み、または既に存在しない場合
-                        const status = deleteResult.success ? 'success' : 
-                                      deleteResult.data?.verified ? 'verified' : 'not found';
-                        
+                        const status = deleteResult.success ? 'success' :
+                            deleteResult.data?.verified ? 'verified' : 'not found';
+
                         debugLog(`[INBOX] Successfully deleted processed data ${dataId} from ${this.INBOX_TABLE} (key: ${dataKey}) - ${status}`);
-                        
+
                         // 削除済みキーを追跡
                         this.deletedKeys.add(dataKey);
                         this.maintainDeletedKeysSize();
                         return;
                     } else {
                         debugLog(`[INBOX] Delete attempt ${retryCount + 1} failed for ${dataId} (key: ${dataKey}): ${deleteResult.error || 'Unknown error'}`);
-                        
+
                         if (retryCount === maxRetries - 1) {
                             debugError(`[INBOX] Failed to delete processed data ${dataId} from ${this.INBOX_TABLE}:`, deleteResult.error);
-                            
+
                             // デバッグ情報として削除に失敗したデータの詳細を記録
                             if (deleteResult.data) {
                                 debugLog(`[INBOX] Failed deletion details for ${dataId}: ${JSON.stringify(deleteResult.data).substring(0, 200)}...`);
@@ -732,18 +730,18 @@ class DataBridge {
                         debugError(`[INBOX] Error deleting processed data ${dataId} from ${this.INBOX_TABLE}:`, error);
                     }
                 }
-                
+
                 retryCount++;
                 if (retryCount < maxRetries) {
                     // 次の試行前に短時間待機（指数バックオフ）
                     await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount)));
                 }
             }
-            
+
             // 最終的に削除に失敗した場合でも追跡キーに追加（無限ループを防ぐ）
             debugLog(`[INBOX] Marking key ${dataKey} as deleted despite failures to prevent infinite loops`);
             this.deletedKeys.add(dataKey);
-            
+
         } catch (error) {
             debugError(`[INBOX] Error in deleteProcessedDataSafely for ${dataId}:`, error);
             // 例外が発生した場合も追跡キーに追加
@@ -765,7 +763,7 @@ class DataBridge {
     private async deleteInvalidData(dataKey: number): Promise<void> {
         const maxRetries = 3;
         let retryCount = 0;
-        
+
         while (retryCount < maxRetries) {
             try {
                 // 最初の試行のみログ出力（スパムを減らす）
@@ -773,17 +771,17 @@ class DataBridge {
                     debugLog(`[INBOX] Deleting invalid data from ${this.INBOX_TABLE} (key: ${dataKey})`);
                 }
                 const deleteResult = await jsonDB.delete(this.INBOX_TABLE, dataKey);
-                
+
                 if (deleteResult.success) {
                     if (retryCount > 0) {
                         debugLog(`[INBOX] Successfully deleted invalid data from ${this.INBOX_TABLE} (key: ${dataKey}) after ${retryCount + 1} attempts`);
                     } else {
                         debugLog(`[INBOX] Successfully deleted invalid data from ${this.INBOX_TABLE} (key: ${dataKey})`);
                     }
-                    
+
                     // 削除済みキーを追跡
                     this.deletedKeys.add(dataKey);
-                    
+
                     // 削除済みキーのサイズ制限（メモリ効率のため）
                     if (this.deletedKeys.size > 10000) {
                         const keysArray = Array.from(this.deletedKeys);
@@ -791,7 +789,7 @@ class DataBridge {
                         this.deletedKeys.clear();
                         toKeep.forEach(key => this.deletedKeys.add(key));
                     }
-                    
+
                     return; // 成功したら終了
                 } else {
                     if (retryCount === maxRetries - 1) {
@@ -803,14 +801,14 @@ class DataBridge {
                     debugError(`[INBOX] Error deleting invalid data from ${this.INBOX_TABLE} (key: ${dataKey}) after all attempts:`, error);
                 }
             }
-            
+
             retryCount++;
             if (retryCount < maxRetries) {
                 // 次の試行前に短時間待機
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
-        
+
         debugError(`[INBOX] Failed to delete invalid data after ${maxRetries} attempts (key: ${dataKey})`);
     }
 
@@ -828,18 +826,18 @@ class DataBridge {
 
             const maxRetries = 3;
             let retryCount = 0;
-            
+
             while (retryCount < maxRetries) {
                 try {
                     debugLog(`[INBOX] Attempting to delete processed data from table: ${this.INBOX_TABLE}, ID: ${dataId} (key: ${dataKey}) - attempt ${retryCount + 1}/${maxRetries}`);
                     const deleteResult = await jsonDB.delete(this.INBOX_TABLE, dataKey);
-                    
+
                     if (deleteResult.success) {
                         debugLog(`[INBOX] Successfully deleted processed data ${dataId} from ${this.INBOX_TABLE} (key: ${dataKey})`);
-                        
+
                         // 削除済みキーを追跡
                         this.deletedKeys.add(dataKey);
-                        
+
                         // 削除済みキーのサイズ制限（メモリ効率のため）
                         if (this.deletedKeys.size > 10000) {
                             const keysArray = Array.from(this.deletedKeys);
@@ -847,7 +845,7 @@ class DataBridge {
                             this.deletedKeys.clear();
                             toKeep.forEach(key => this.deletedKeys.add(key));
                         }
-                        
+
                         return; // 成功したら終了
                     } else {
                         debugError(`[INBOX] Failed to delete processed data ${dataId} from ${this.INBOX_TABLE} - attempt ${retryCount + 1}:`, deleteResult.error);
@@ -855,16 +853,16 @@ class DataBridge {
                 } catch (error) {
                     debugError(`[INBOX] Error deleting processed data ${dataId} from ${this.INBOX_TABLE} - attempt ${retryCount + 1}:`, error);
                 }
-                
+
                 retryCount++;
                 if (retryCount < maxRetries) {
                     // 次の試行前に短時間待機
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
             }
-            
+
             debugError(`[INBOX] Failed to delete processed data ${dataId} after ${maxRetries} attempts (key: ${dataKey})`);
-            
+
         } catch (error) {
             debugError(`[INBOX] Error in deleteProcessedData for ${dataId}:`, error);
         }
@@ -881,17 +879,17 @@ class DataBridge {
             }
 
             this.isPerformingCleanup = true;
-            
+
             try {
                 debugLog('Performing automatic INBOX cleanup...');
-                
+
                 // 古いデータをクリーンアップ（1時間以上古いデータ）
                 const oneHourAgo = Date.now() - (60 * 60 * 1000);
-                
+
                 // 受信データ（INBOX）のみの確認 - OUTBOXは触らない
                 const inboxData = await this.getInboxData();
                 let cleanedCount = 0;
-                
+
                 for (const data of inboxData) {
                     // 削除済みキーのチェック
                     const dataKey = this.generateDataKey(data?.id || 'invalid', data?.timestamp || Date.now());
@@ -916,11 +914,11 @@ class DataBridge {
                     // 処理間隔を設ける（過負荷を防ぐ）
                     await new Promise(resolve => setTimeout(resolve, 10));
                 }
-                
+
                 if (cleanedCount > 0) {
                     debugLog(`Automatic INBOX cleanup completed: removed ${cleanedCount} old/processed/invalid items`);
                 }
-                
+
                 // 処理済みIDセットのクリーンアップ（メモリ効率のため）
                 if (this.lastProcessedIds.size > this.maxProcessedIds * 1.2) {
                     const idsArray = Array.from(this.lastProcessedIds);
@@ -929,11 +927,11 @@ class DataBridge {
                     toKeep.forEach(id => this.lastProcessedIds.add(id));
                     debugLog(`Cleaned up processed IDs set, kept ${toKeep.length} recent IDs`);
                 }
-                
+
             } finally {
                 this.isPerformingCleanup = false;
             }
-            
+
         } catch (error) {
             this.isPerformingCleanup = false;
             debugError('Error during automatic INBOX cleanup:', error);
@@ -946,10 +944,10 @@ class DataBridge {
     public async forceDeleteAllInboxData(): Promise<void> {
         try {
             debugLog('Performing FORCE DELETE of entire INBOX table...');
-            
+
             // テーブル全体を削除（実装依存）
             const deleteAllResult = await jsonDB.clear?.(this.INBOX_TABLE);
-            
+
             if (deleteAllResult?.success) {
                 debugLog('Successfully cleared entire INBOX table');
                 console.log(`🧹 [DataBridge] FORCE DELETE: Entire INBOX table cleared`);
@@ -958,7 +956,7 @@ class DataBridge {
                 debugLog('Clear method not available, falling back to individual deletion');
                 const inboxData = await this.getInboxData();
                 let deletedCount = 0;
-                
+
                 for (const data of inboxData) {
                     const dataKey = this.generateDataKey(data?.id || 'force_delete', data?.timestamp || Date.now());
                     try {
@@ -970,16 +968,16 @@ class DataBridge {
                         debugError(`Error force deleting data with key ${dataKey}:`, error);
                     }
                 }
-                
+
                 debugLog(`Force deleted ${deletedCount} items from INBOX table`);
                 console.log(`🧹 [DataBridge] FORCE DELETE: ${deletedCount} items forcefully removed from INBOX`);
             }
-            
+
             // 全ての追跡データをリセット
             this.deletedKeys.clear();
             this.lastProcessedIds.clear();
             debugLog('All tracking data cleared');
-            
+
         } catch (error) {
             debugError('Error during force delete of INBOX table:', error);
         }
@@ -1010,10 +1008,10 @@ export const bridge = {
     cleanup: (olderThanMs?: number) => dataBridge.cleanupOldData(olderThanMs),
     cleanupProcessed: () => dataBridge.cleanupProcessedData(),
     forceCleanup: () => dataBridge.forceCleanupAll(),
-    
+
     // 統計情報
     getStats: () => dataBridge.getProcessingStats(),
-    
+
     // 強制全削除（データベーステーブル全体をクリア）
     forceDeleteAll: () => dataBridge.forceDeleteAllInboxData()
 };

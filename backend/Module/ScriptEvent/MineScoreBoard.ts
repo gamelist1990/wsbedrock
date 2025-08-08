@@ -294,19 +294,12 @@ class JsonScoreboardDatabase {
             }
 
             // エスケープ処理（コマンドで使用するため）
-            const escapedJson = minifiedJson.replace(/"/g, '\\"');
-
-            // Socket-BEのスコアボードAPIは現在限定的なため、コマンドベースアプローチを優先
-            if (scoreboard && false) { // 現在は無効化
-                debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Using scoreboard API for score setting`);
-                // APIコードは将来の実装のために保持
-            }
 
             // 従来のコマンドベース方式（フォールバック）
             debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Using command-based approach for score setting`);
 
             // participant名をJSONにしてスコア値をIDに設定
-            const command = `scoreboard players set "${escapedJson}" ${tableName} ${id}`;
+            const command = `scriptevent command:jsondb set ${tableName} ${id} ${minifiedJson}`;
             debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Executing command: ${command.substring(0, 100)}...`);
             const result = await world.runCommand(command);
             debugLog(`[JsonScoreboardDatabase][${timestamp}] DEBUG: Command result - success: ${result.successCount}, message: ${result.statusMessage}`);

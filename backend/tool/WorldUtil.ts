@@ -92,7 +92,6 @@ export class WorldUtil implements IUtil {
           });
         });
 
-        console.log('✅ [WorldUtil] ワールドイベントリスナーを設定しました');
       }).catch(error => {
         console.error('❌ [WorldUtil] ServerEventのインポートに失敗:', error);
       });

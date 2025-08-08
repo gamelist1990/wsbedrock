@@ -1,3 +1,4 @@
+// jsonDB APIのimport
 import { 
   ScriptEventCommandMessageAfterEvent, 
   system, 
@@ -142,6 +143,8 @@ system.afterEvents.scriptEventReceive.subscribe((ev: ScriptEventCommandMessageAf
     }
   }
 });
+
+
 
 // レジストリーをエクスポート
 export { ScriptEventCommandRegistry, scriptEventRegistry };
