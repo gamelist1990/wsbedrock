@@ -20,7 +20,7 @@ export interface BridgeResponse {
 type DataHandler = (data: CommunicationData) => Promise<BridgeResponse | void>;
 
 // デバッグフラグ
-const DEBUG_BRIDGE = false;
+const DEBUG_BRIDGE = true;
 
 // デバッグ用ヘルパー
 const debugLog = (message: string) => {

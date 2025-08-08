@@ -1,6 +1,6 @@
 import { Event } from '../../Event/Event';
 import { bridge } from '../Bridge';
-import { PlayerBreakBlockBeforeEvent } from '@minecraft/server';
+import { PlayerBreakBlockBeforeEvent, world } from '@minecraft/server';
 
 // ブロック破壊イベントのコンパクトなデータ型
 interface CompactBlockBreakEventData {
@@ -46,7 +46,7 @@ interface BridgeResponse {
 type BreakEventResponseHandler = (response: BreakEventResponse) => void;
 
 // デバッグフラグ
-const DEBUG_BREAK_EVENT = false;
+const DEBUG_BREAK_EVENT = true;
 
 // デバッグ用ヘルパー
 const debugLog = (message: string) => {
@@ -90,108 +90,31 @@ class BlockBreakEventHandler {
         
         // Bridgeにレスポンスハンドラーを登録
         bridge.onReceive(async (data) => {
-            // break_response の処理
-            if (data?.data?.type === 'break_response') {
-                await this.handleResponse(data.data);
-                return {
-                    id: `ack_${data.id}`,
-                    timestamp: Date.now(),
-                    type: 'break_response_ack',
-                    jsonData: { originalResponseId: data.id }
-                };
-            }
-
-            // event_acknowledged の処理
-            if (data?.data?.type === 'event_acknowledged') {
-                const bridgeResponse: BridgeResponse = data.data;
-                const originalId = bridgeResponse.data?.originalId;
-                if (originalId && typeof originalId === 'string') {
-                    // originalId からプレイヤーID部分を抽出（brk_xxxxx_タイムスタンプ）
-                    const match = originalId.match(/^brk_([^-_]+)_/);
-                    if (match) {
-                        const playerIdPart = match[1];
-                        // プレイヤーを全員から部分一致で検索
-                        try {
-                            // @minecraft/server から world を取得
-                            // eslint-disable-next-line @typescript-eslint/no-var-requires
-                            const mc = require('@minecraft/server');
-                            const players = mc.world.getPlayers();
-                            for (const player of players) {
-                                if (player.id && player.id.startsWith(playerIdPart)) {
-                                    player.sendMessage('ブロック破壊イベントが正常に処理されました。');
-                                    debugLog(`Sent success message to player: ${player.name}`);
-                                    break;
-                                }
-                            }
-                        } catch (e) {
-                            debugError('Failed to send player message for event_acknowledged:', e);
+            // player_break_block のACKレスポンスに合わせて処理
+            console.log('Received data:', JSON.stringify(data, null, 2));
+            const ackType = data?.data?.type;
+            const ackData = data?.data?.data;
+            if (ackType === 'player_break_block' && ackData && typeof ackData.p === 'string') {
+                const playerName = ackData.p;
+                debugLog(`Looking for player.name === ${playerName}`);
+                try {
+                    const players = world.getPlayers();
+                    for (const player of players) {
+                        debugLog(`Checking player.name: ${player.name}`);
+                        if (player.name === playerName) {
+                            player.sendMessage('ブロック破壊イベントが正常に処理されました。');
+                            debugLog(`Sent success message to player: ${player.name}`);
+                            break;
                         }
                     }
+                } catch (e) {
+                    debugError('Failed to send player message for player_break_block:', e);
                 }
-                return {
-                    id: `ack_${data.id}`,
-                    timestamp: Date.now(),
-                    type: 'event_acknowledged_ack',
-                    jsonData: { originalResponseId: data.id }
-                };
             }
             return undefined;
         });
     }
 
-    /**
-     * バックエンドからのレスポンスを処理
-     */
-    private async handleResponse(response: BreakEventResponse): Promise<void> {
-        try {
-            debugLog(`Processing break event response - Status: ${response.status}, Event ID: ${response.originalEventId}`);
-            
-            // 送信済みイベントIDから削除（完了追跡）
-            if (response.originalEventId) {
-                this.sentEventIds.delete(response.originalEventId);
-            }
-
-            // ステータスに応じた処理
-            switch (response.status) {
-                case 'success':
-                    debugLog(`Break event successfully processed by backend: ${response.originalEventId}`);
-                    if (response.message) {
-                        debugLog(`Backend message: ${response.message}`);
-                    }
-                    break;
-                    
-                case 'error':
-                    debugError(`Break event processing failed on backend: ${response.originalEventId}`);
-                    if (response.message) {
-                        debugError(`Backend error: ${response.message}`);
-                    }
-                    break;
-                    
-                case 'processed':
-                    debugLog(`Break event processed by backend: ${response.originalEventId}`);
-                    if (response.data) {
-                        debugLog(`Backend response data: ${JSON.stringify(response.data)}`);
-                    }
-                    break;
-                    
-                default:
-                    debugLog(`Unknown response status: ${response.status}`);
-                    break;
-            }
-
-            // 登録されたレスポンスハンドラーを実行
-            for (const handler of this.responseHandlers) {
-                try {
-                    handler(response);
-                } catch (handlerError) {
-                    debugError('Error in response handler:', handlerError);
-                }
-            }
-            
-        } catch (error) {
-            debugError('Error processing break event response:', error);
-        }
-    }
 
     /**
      * レスポンスハンドラーを追加

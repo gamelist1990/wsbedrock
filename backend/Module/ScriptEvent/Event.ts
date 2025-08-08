@@ -129,9 +129,10 @@ function initializeEventListenerInternal(): void {
             return {
                 id: `ack_${data.id}`,
                 timestamp: Date.now(),
-                type: 'event_acknowledged', 
+                type: 'player_break_block', 
                 jsonData: {
                     originalEventType: 'break',
+                    p: data.data.p.n,
                     originalId: data.id,
                     processed: true
                 }
